@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Tauri scaffold (not used)
+clipboard-app/
+
+# State file
+.clipboard_manager_v2.json
+.clipboard_grid.json
+
+# OS
+.DS_Store
+Thumbs.db
