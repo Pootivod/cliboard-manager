@@ -400,7 +400,7 @@ class EditorWindow(tk.Toplevel):
     def __init__(self, app):
         super().__init__(app.root)
         self.app = app
-        self.overrideredirect(True)
+        self.title("Редактор — Clipboard Manager")
         self.configure(bg=DARK_BG)
 
         mx = app.root.winfo_x() + app.root.winfo_width() + 8
@@ -412,23 +412,13 @@ class EditorWindow(tk.Toplevel):
         self.render()
 
     def _build(self):
-        # Titlebar
+        # Header bar (OS handles window chrome)
         bar = tk.Frame(self, bg=PANEL_BG, height=44)
         bar.pack(fill="x")
         bar.pack_propagate(False)
 
         tk.Label(bar, text="✎  Редактор", bg=PANEL_BG, fg=TEXT_PRIMARY,
                  font=("Helvetica", 11, "bold")).pack(side="left", padx=14)
-
-        tk.Button(bar, text="✕", bg=PANEL_BG, fg=DANGER,
-                  font=("Helvetica", 12), relief="flat", cursor="hand2",
-                  activebackground="#3d1a1a", activeforeground=DANGER,
-                  command=self.destroy, bd=0, padx=12).pack(side="right")
-
-        bar.bind("<ButtonPress-1>", self._bpress)
-        bar.bind("<B1-Motion>",     self._bdrag)
-        for w in bar.winfo_children():
-            pass  # children are buttons, they handle their own bindings
 
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
@@ -684,13 +674,6 @@ class EditorWindow(tk.Toplevel):
         save_data(self.app.data)
         self.app.refresh()
 
-    def _bpress(self, e):
-        self._bx = e.x_root - self.winfo_x()
-        self._by = e.y_root - self.winfo_y()
-
-    def _bdrag(self, e):
-        self.geometry(f"+{e.x_root - self._bx}+{e.y_root - self._by}")
-
 
 # ── App ───────────────────────────────────────────────────────────────────────
 class App:
@@ -700,10 +683,9 @@ class App:
         else:
             self.root = tk.Tk()
 
-        self.root.overrideredirect(True)
+        self.root.title("Clipboard Manager")
         self.root.geometry("480x580+180+80")
         self.root.configure(bg=DARK_BG)
-        self.root.bind("<Map>", lambda e: self.root.overrideredirect(True))
 
         self.data      = load_data()
         self._editor   = None
@@ -713,7 +695,7 @@ class App:
         self.refresh()
 
     def _build_ui(self):
-        # ── Titlebar ──
+        # ── Toolbar (replaces custom titlebar — OS handles window chrome) ──
         bar = tk.Frame(self.root, bg=PANEL_BG, height=44)
         bar.pack(fill="x")
         bar.pack_propagate(False)
@@ -721,25 +703,12 @@ class App:
         tk.Label(bar, text="📋  Clipboard", bg=PANEL_BG, fg=TEXT_PRIMARY,
                  font=("Helvetica", 12, "bold")).pack(side="left", padx=16)
 
-        tk.Button(bar, text="✕", bg=PANEL_BG, fg=DANGER,
-                  font=("Helvetica", 12), relief="flat", cursor="hand2",
-                  activebackground="#3d1a1a", activeforeground=DANGER,
-                  command=self._close, bd=0, padx=12).pack(side="right")
-
-        tk.Button(bar, text="─", bg=PANEL_BG, fg=TEXT_MUTED,
-                  font=("Helvetica", 12), relief="flat", cursor="hand2",
-                  activebackground=BORDER, activeforeground=TEXT_PRIMARY,
-                  command=self._minimize, bd=0, padx=10).pack(side="right")
-
         self._pencil_btn = tk.Button(
             bar, text="✎", bg=PANEL_BG, fg=TEXT_SECONDARY,
             font=("Helvetica", 13), relief="flat", cursor="hand2",
             activebackground=BORDER, activeforeground=ACCENT2,
             command=self._toggle_editor, bd=0, padx=12)
         self._pencil_btn.pack(side="right")
-
-        bar.bind("<ButtonPress-1>", self._bpress)
-        bar.bind("<B1-Motion>",     self._bdrag)
 
         tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
@@ -846,16 +815,7 @@ class App:
             self._editor = EditorWindow(self)
             self._editor.protocol("WM_DELETE_WINDOW", self._toggle_editor)
 
-    def _bpress(self, e):
-        self._bx = e.x_root - self.root.winfo_x()
-        self._by = e.y_root - self.root.winfo_y()
 
-    def _bdrag(self, e):
-        self.root.geometry(f"+{e.x_root - self._bx}+{e.y_root - self._by}")
-
-    def _minimize(self):
-        self.root.overrideredirect(False)
-        self.root.iconify()
 
     def _close(self):
         save_data(self.data)
