@@ -135,11 +135,28 @@ class CellWidget(tk.Frame):
         self._name_lbl.place(relx=0.5, rely=0.86, anchor="center")
 
         for w in (self, self._emoji_lbl, self._name_lbl):
-            w.bind("<Enter>",          self._on_enter)
-            w.bind("<Leave>",          self._on_leave)
-            w.bind("<ButtonPress-1>",  self._on_press)
-            w.bind("<B1-Motion>",      self._on_motion)
-            w.bind("<ButtonRelease-1>",self._on_release)
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
+
+        if self.app.edit_mode:
+            # Edit mode: B1-Motion for in-grid reorder
+            for w in (self, self._emoji_lbl, self._name_lbl):
+                w.bind("<ButtonPress-1>",   self._on_press)
+                w.bind("<B1-Motion>",       self._on_motion)
+                w.bind("<ButtonRelease-1>", self._on_release)
+        else:
+            # Normal mode: external DnD (drag text to other apps)
+            if DND_AVAILABLE:
+                for w in (self, self._emoji_lbl, self._name_lbl):
+                    try:
+                        w.drag_source_register(DND_TEXT)
+                        w.dnd_bind("<<DragInitCmd>>", self._drag_init)
+                        w.dnd_bind("<<DragEndCmd>>",  self._drag_end)
+                    except Exception:
+                        pass
+            for w in (self, self._emoji_lbl, self._name_lbl):
+                w.bind("<ButtonPress-1>",   self._on_press)
+                w.bind("<ButtonRelease-1>", self._on_click_release)
 
     # ── Hover / tooltip ──
     def _on_enter(self, _):
@@ -198,6 +215,21 @@ class CellWidget(tk.Frame):
         self._dragging = False
         self._cancel_tooltip()
 
+    # Normal mode: external DnD handlers
+    def _drag_init(self, e):
+        self._dragging = True
+        return ("copy", DND_TEXT, self.cell["text"])
+
+    def _drag_end(self, e):
+        self._dragging = False
+
+    def _on_click_release(self, e):
+        dx = abs(e.x_root - self._px)
+        dy = abs(e.y_root - self._py)
+        if dx < 6 and dy < 6 and not self._dragging:
+            self.app.copy_text(self.cell["text"])
+
+    # Edit mode: in-grid reorder handlers
     def _on_motion(self, e):
         if abs(e.x_root - self._px) > 7 or abs(e.y_root - self._py) > 7:
             self._dragging = True
@@ -671,8 +703,9 @@ class App:
         self.root.configure(bg=DARK_BG)
         self.root.bind("<Map>", lambda e: self.root.overrideredirect(True))
 
-        self.data    = load_data()
-        self._editor = None
+        self.data      = load_data()
+        self._editor   = None
+        self.edit_mode = False
 
         self._build_ui()
         self.refresh()
@@ -696,10 +729,12 @@ class App:
                   activebackground=BORDER, activeforeground=TEXT_PRIMARY,
                   command=self._minimize, bd=0, padx=10).pack(side="right")
 
-        tk.Button(bar, text="✎", bg=PANEL_BG, fg=TEXT_SECONDARY,
-                  font=("Helvetica", 13), relief="flat", cursor="hand2",
-                  activebackground=BORDER, activeforeground=ACCENT2,
-                  command=self._open_editor, bd=0, padx=12).pack(side="right")
+        self._pencil_btn = tk.Button(
+            bar, text="✎", bg=PANEL_BG, fg=TEXT_SECONDARY,
+            font=("Helvetica", 13), relief="flat", cursor="hand2",
+            activebackground=BORDER, activeforeground=ACCENT2,
+            command=self._toggle_editor, bd=0, padx=12)
+        self._pencil_btn.pack(side="right")
 
         bar.bind("<ButtonPress-1>", self._bpress)
         bar.bind("<B1-Motion>",     self._bdrag)
@@ -736,7 +771,7 @@ class App:
         self._canvas.bind("<Button-5>",   lambda e: self._canvas.yview_scroll(1,  "units"))
 
         # ── Status ──
-        self._status = tk.StringVar(value="Клик — копировать • Удержи и перетащи — переместить ячейку")
+        self._status = tk.StringVar(value="Клик — копировать • Перетащи в другое приложение")
         tk.Label(self.root, textvariable=self._status,
                  bg=PANEL_BG, fg=TEXT_MUTED,
                  font=("Helvetica", 9), pady=6).pack(fill="x", side="bottom")
@@ -783,17 +818,31 @@ class App:
         self.root.clipboard_append(text)
         short = text[:50] + ("…" if len(text) > 50 else "")
         self._status.set(f"✓ Скопировано: {short}")
-        self.root.after(3000, lambda: self._status.set(
-            "Клик — копировать • Удержи и перетащи — переместить ячейку"))
+        idle = ("✎ Режим редактирования: перетащи ячейки для перестановки"
+                if self.edit_mode else
+                "Клик — копировать • Перетащи в другое приложение")
+        self.root.after(3000, lambda: self._status.set(idle))
 
     def _active_table(self):
         return self.data["tables"][self.data.get("active", 0)]
 
-    def _open_editor(self):
-        if self._editor and self._editor.winfo_exists():
-            self._editor.lift()
-            return
-        self._editor = EditorWindow(self)
+    def _toggle_editor(self):
+        if self.edit_mode:
+            # Exit edit mode
+            self.edit_mode = False
+            self._pencil_btn.configure(bg=PANEL_BG, fg=TEXT_SECONDARY)
+            self._status.set("Клик — копировать • Перетащи в другое приложение")
+            if self._editor and self._editor.winfo_exists():
+                self._editor.destroy()
+            self.refresh()
+        else:
+            # Enter edit mode
+            self.edit_mode = True
+            self._pencil_btn.configure(bg=CARD_BG, fg=ACCENT2)
+            self._status.set("✎ Режим редактирования: перетащи ячейки для перестановки")
+            self.refresh()
+            self._editor = EditorWindow(self)
+            self._editor.protocol("WM_DELETE_WINDOW", self._toggle_editor)
 
     def _bpress(self, e):
         self._bx = e.x_root - self.root.winfo_x()
