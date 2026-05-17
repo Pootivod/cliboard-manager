@@ -61,10 +61,11 @@ class ClipCard(tk.Frame):
         self.on_copy = on_copy
         self.on_edit = on_edit
         self.on_delete = on_delete
+        self._hover = False
+        self._dragging = False
         self._drag_started = False
         self._press_x = 0
         self._press_y = 0
-        self._hover = False
         self._build()
 
     def _build(self):
@@ -86,7 +87,7 @@ class ClipCard(tk.Frame):
         btn_frame.pack(side="right")
 
         copy_btn = tk.Button(
-            btn_frame, text="⧉ Copy", bg=PANEL_BG, fg=ACCENT2,
+            btn_frame, text="Copy", bg=PANEL_BG, fg=ACCENT2,
             font=("Helvetica", 9), relief="flat", cursor="hand2",
             activebackground=BORDER, activeforeground=ACCENT2,
             command=lambda: self.on_copy(self.item["text"]), padx=6
@@ -94,16 +95,16 @@ class ClipCard(tk.Frame):
         copy_btn.pack(side="left", padx=2)
 
         edit_btn = tk.Button(
-            btn_frame, text="✎", bg=PANEL_BG, fg=TEXT_SECONDARY,
-            font=("Helvetica", 10), relief="flat", cursor="hand2",
+            btn_frame, text="Edit", bg=PANEL_BG, fg=TEXT_SECONDARY,
+            font=("Helvetica", 9), relief="flat", cursor="hand2",
             activebackground=BORDER, activeforeground=TEXT_PRIMARY,
             command=lambda: self.on_edit(self), padx=4
         )
         edit_btn.pack(side="left", padx=2)
 
         del_btn = tk.Button(
-            btn_frame, text="✕", bg=PANEL_BG, fg=DANGER,
-            font=("Helvetica", 10), relief="flat", cursor="hand2",
+            btn_frame, text="Del", bg=PANEL_BG, fg=DANGER,
+            font=("Helvetica", 9), relief="flat", cursor="hand2",
             activebackground=BORDER, activeforeground=DANGER,
             command=lambda: self.on_delete(self), padx=4
         )
@@ -121,7 +122,6 @@ class ClipCard(tk.Frame):
         )
         drag_icon.pack(side="left", padx=(0, 8))
 
-        # Text widget instead of Label — supports real text selection
         line_count = self.item["text"].count("\n") + 1
         self.text_widget = tk.Text(
             text_frame,
@@ -130,7 +130,7 @@ class ClipCard(tk.Frame):
             relief="flat", bd=0,
             wrap="word",
             height=line_count,
-            cursor="xterm",
+            cursor="fleur",
             selectbackground=SELECT_BG,
             selectforeground=TEXT_PRIMARY,
             inactiveselectbackground=SELECT_BG,
@@ -139,44 +139,52 @@ class ClipCard(tk.Frame):
         self.text_widget.configure(state="disabled")
         self.text_widget.pack(side="left", fill="x", expand=True, pady=2)
 
-        drag_hint = tk.Label(
-            text_frame, text="drag →", bg=CARD_BG, fg=TEXT_MUTED,
-            font=("Helvetica", 8, "italic")
-        )
-        drag_hint.pack(side="right")
-
         # Hover: auto-select text
-        hover_targets = [self, top, text_frame, drag_icon, drag_hint, self.text_widget]
+        hover_targets = [self, top, text_frame, drag_icon, self.text_widget]
         for w in hover_targets:
             w.bind("<Enter>", self._on_enter)
             w.bind("<Leave>", self._on_leave)
 
-        # DnD registration on text widget — enables native drag of selected text
-        draggable = [self, drag_icon, drag_hint, self.text_widget]
-        for w in draggable:
-            if DND_AVAILABLE:
+        if DND_AVAILABLE:
+            # Register drag sources — do NOT bind B1-Motion manually,
+            # it would intercept events before tkinterdnd2 detects the drag gesture
+            for w in (self, drag_icon, self.text_widget):
                 try:
                     w.drag_source_register(DND_TEXT)
                     w.dnd_bind("<<DragInitCmd>>", self._drag_init)
+                    w.dnd_bind("<<DragEndCmd>>", self._drag_end)
                 except Exception:
                     pass
-            w.bind("<ButtonPress-1>", self._on_press)
-            w.bind("<B1-Motion>", self._on_motion)
-            w.bind("<ButtonRelease-1>", self._on_release)
-
-        # Allow text widget to participate in drag without stealing events
-        self.text_widget.bind("<ButtonPress-1>", self._on_text_press)
-        self.text_widget.bind("<B1-Motion>", self._on_text_motion)
-        self.text_widget.bind("<ButtonRelease-1>", self._on_text_release)
+            # Click detection: if mouse released without drag, treat as copy
+            for w in (self, drag_icon, self.text_widget):
+                w.bind("<ButtonPress-1>", self._on_press)
+                w.bind("<ButtonRelease-1>", self._on_click_release)
+        else:
+            # Fallback without DnD: click to copy
+            for w in (self, drag_icon, self.text_widget):
+                w.bind("<ButtonPress-1>", self._on_press)
+                w.bind("<B1-Motion>", self._on_motion)
+                w.bind("<ButtonRelease-1>", self._on_release)
 
     def _drag_init(self, event):
-        return (DND_TEXT, self.item["text"])
+        self._dragging = True
+        return ("copy", DND_TEXT, self.item["text"])
+
+    def _drag_end(self, event):
+        self._dragging = False
 
     def _on_press(self, event):
-        self._drag_started = False
         self._press_x = event.x_root
         self._press_y = event.y_root
+        self._drag_started = False
 
+    def _on_click_release(self, event):
+        dx = abs(event.x_root - self._press_x)
+        dy = abs(event.y_root - self._press_y)
+        if dx < 5 and dy < 5 and not self._dragging:
+            self.on_copy(self.item["text"])
+
+    # Fallback handlers (no DnD)
     def _on_motion(self, event):
         dx = abs(event.x_root - self._press_x)
         dy = abs(event.y_root - self._press_y)
@@ -187,32 +195,6 @@ class ClipCard(tk.Frame):
         if not self._drag_started:
             self.on_copy(self.item["text"])
 
-    def _on_text_press(self, event):
-        self._drag_started = False
-        self._press_x = event.x_root
-        self._press_y = event.y_root
-        # Allow default text selection to begin
-        return None
-
-    def _on_text_motion(self, event):
-        dx = abs(event.x_root - self._press_x)
-        dy = abs(event.y_root - self._press_y)
-        if dx > 5 or dy > 5:
-            self._drag_started = True
-        # Don't block motion so selection rubber-band works
-
-    def _on_text_release(self, event):
-        if not self._drag_started:
-            # No drag, no selection drag — treat as copy click
-            sel = self._get_selection()
-            self.on_copy(sel if sel else self.item["text"])
-
-    def _get_selection(self):
-        try:
-            return self.text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
-        except tk.TclError:
-            return ""
-
     def _on_enter(self, event):
         if not self._hover:
             self._hover = True
@@ -220,7 +202,6 @@ class ClipCard(tk.Frame):
             self._select_all()
 
     def _on_leave(self, event):
-        # Check if cursor moved to a child widget of this card
         widget_under = self.winfo_containing(event.x_root, event.y_root)
         if widget_under and (widget_under is self or str(widget_under).startswith(str(self))):
             return
@@ -294,7 +275,7 @@ class App:
         header.pack(fill="x")
 
         title = tk.Label(
-            header, text="📋 Clipboard Manager",
+            header, text="\U0001f4cb Clipboard Manager",
             bg=PANEL_BG, fg=TEXT_PRIMARY,
             font=("Helvetica", 16, "bold")
         )
@@ -323,9 +304,9 @@ class App:
             relief="flat", bd=0
         )
         search_entry.pack(fill="x", ipady=8, padx=8)
-        search_entry.insert(0, "🔍  Search...")
-        search_entry.bind("<FocusIn>", lambda e: search_entry.delete(0, "end") if search_entry.get().startswith("🔍") else None)
-        search_entry.bind("<FocusOut>", lambda e: search_entry.insert(0, "🔍  Search...") if not search_entry.get().strip() else None)
+        search_entry.insert(0, "\U0001f50d  Search...")
+        search_entry.bind("<FocusIn>", lambda e: search_entry.delete(0, "end") if search_entry.get().startswith("\U0001f50d") else None)
+        search_entry.bind("<FocusOut>", lambda e: search_entry.insert(0, "\U0001f50d  Search...") if not search_entry.get().strip() else None)
 
         sep = tk.Frame(self.root, bg=BORDER, height=1)
         sep.pack(fill="x")
@@ -333,14 +314,14 @@ class App:
         if not DND_AVAILABLE:
             warn = tk.Label(
                 self.root,
-                text="⚠  tkinterdnd2 not installed — drag disabled. pip install tkinterdnd2",
+                text="⚠  tkinterdnd2 not installed. pip install tkinterdnd2",
                 bg="#3b2f00", fg="#fbbf24",
                 font=("Helvetica", 9), padx=10, pady=5
             )
             warn.pack(fill="x")
 
         container = tk.Frame(self.root, bg=DARK_BG)
-        container.pack(fill="both", expand=True, padx=0, pady=0)
+        container.pack(fill="both", expand=True)
 
         canvas = tk.Canvas(container, bg=DARK_BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
@@ -364,7 +345,7 @@ class App:
 
         self.canvas = canvas
 
-        self.status_var = tk.StringVar(value="Наведи на карточку — текст выделится. Перетащи в другое приложение.")
+        self.status_var = tk.StringVar(value="Наведи на карточку и перетащи текст в любое поле ввода")
         status = tk.Label(
             self.root, textvariable=self.status_var,
             bg=PANEL_BG, fg=TEXT_MUTED,
@@ -389,7 +370,7 @@ class App:
 
     def _on_search(self, *args):
         q = self.search_var.get().lower().strip()
-        if not q or q.startswith("🔍"):
+        if not q or q.startswith("\U0001f50d"):
             filtered = self.items
         else:
             filtered = [i for i in self.items if q in i["label"].lower() or q in i["text"].lower()]
@@ -399,7 +380,7 @@ class App:
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         self.status_var.set(f"✓ Скопировано: {text[:50]}{'…' if len(text) > 50 else ''}")
-        self.root.after(3000, lambda: self.status_var.set("Наведи на карточку — текст выделится. Перетащи в другое приложение."))
+        self.root.after(3000, lambda: self.status_var.set("Наведи на карточку и перетащи текст в любое поле ввода"))
 
     def _add_item(self):
         label = simpledialog.askstring("Новый элемент", "Название:", parent=self.root)
