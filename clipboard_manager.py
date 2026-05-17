@@ -161,6 +161,8 @@ class CellWidget(tk.Frame):
     # ── Hover / tooltip ──
     def _on_enter(self, _):
         self._set_bg(CARD_HOVER)
+        if self._tooltip_job:
+            self.after_cancel(self._tooltip_job)
         self._tooltip_job = self.after(TOOLTIP_DELAY, self._show_tooltip)
 
     def _on_leave(self, e):
