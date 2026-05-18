@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QTextEdit, QPushButton,
     QHBoxLayout, QVBoxLayout, QFrame, QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore  import Qt, QTimer, QPoint, QRect, QSize, pyqtSignal, QMimeData
+from PyQt6.QtCore  import Qt, QTimer, QPoint, QRect, QRectF, QSize, pyqtSignal, QMimeData
 from PyQt6.QtGui   import (
     QColor, QPainter, QPainterPath, QPen, QFont, QDrag, QPixmap,
 )
@@ -226,7 +226,9 @@ class LiftedCell(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r  = self.rect()
         m  = 4                          # margin for glow halo
-        inner = QRect(m, m, r.width()-2*m, r.height()-2*m)
+        iw = r.width()  - 2*m
+        ih = r.height() - 2*m
+        inner = QRectF(m, m, iw, ih)
         path  = QPainterPath()
         path.addRoundedRect(inner, 14, 14)
 
@@ -242,7 +244,7 @@ class LiftedCell(QWidget):
 
         # accent border
         p.setPen(QPen(_ac(180), 2))
-        p.drawRoundedRect(inner.adjusted(1,1,-1,-1), 13, 13)
+        p.drawRoundedRect(inner.adjusted(1, 1, -1, -1), 13, 13)
 
         p.setClipPath(path)
 
@@ -252,13 +254,13 @@ class LiftedCell(QWidget):
         p.drawText(QRect(m+6, m+5, 20, 14), Qt.AlignmentFlag.AlignLeft, "⠿")
 
         # emoji
-        er = QRect(m, m+6, inner.width(), int(inner.height() * 0.62))
+        er = QRect(m, m+6, iw, int(ih * 0.62))
         p.setFont(QFont("Segoe UI Emoji", 22))
         p.setPen(Qt.GlobalColor.white)
         p.drawText(er, Qt.AlignmentFlag.AlignCenter, self.cell["emoji"])
 
         # label
-        lr = QRect(m+4, m + int(inner.height()*0.66), inner.width()-8, int(inner.height()*0.28))
+        lr = QRect(m+4, m + int(ih*0.66), iw-8, int(ih*0.28))
         p.setFont(QFont("Inter", 9, QFont.Weight.Medium))
         p.setPen(QColor(255, 255, 255, 204))
         p.drawText(lr, Qt.AlignmentFlag.AlignCenter, self.cell["label"])
