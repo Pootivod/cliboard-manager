@@ -233,9 +233,11 @@ class MainWindow(QWidget):
         cells = table["cells"]
         for i, cell in enumerate(cells):
             row, col = divmod(i, self._cols)
+            x = self._cell_x[col]
+            y = self._cell_y[0] + row * (CELL_SIZE + GRID_GAP)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host,
                            cell_size=CELL_SIZE)
-            w.move(self._cell_x[col], self._cell_y[row])
+            w.move(x, y)
             w.show()
             w.clicked.connect(self._cell_clicked)
             w.drag_start.connect(self._drag_start)
@@ -469,8 +471,9 @@ class MainWindow(QWidget):
         for i, w in enumerate(self._cell_widgets):
             if i == self._drag_idx:
                 continue
+            row_i = i // self._cols
             local = QPoint(gp.x() - self._cell_x[i % self._cols],
-                           gp.y() - self._cell_y[i // self._cols])
+                           gp.y() - (self._cell_y[0] + row_i * (CELL_SIZE + GRID_GAP)))
             if 0 <= local.x() < self._cell_size and 0 <= local.y() < self._cell_size:
                 new_over = i
                 break
