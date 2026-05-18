@@ -9,7 +9,7 @@ from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
 
 from cm_constants import (
     WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
-    GRID_W, GRID_ROWS, ACCENT, BG, SUCCESS,
+    GRID_ROWS, CELL_SIZE, ACCENT, BG, SUCCESS,
     grid_metrics, load_state, save_state,
 )
 from cm_widgets import (
@@ -71,8 +71,10 @@ class MainWindow(QWidget):
         bl.setSpacing(0)
 
         # grid area — plain QWidget, cells positioned manually (no layout)
+        # initial size uses 4-col default; _apply_cols() resizes it dynamically
+        _default_grid_w = 2*12 + 4*CELL_SIZE + 3*9   # matches WIN_W default
         self._grid_host = QWidget()
-        self._grid_host.setFixedSize(GRID_W, WIN_H - TOOLBAR_H - STATUSBAR_H)
+        self._grid_host.setFixedSize(_default_grid_w, WIN_H - TOOLBAR_H - STATUSBAR_H)
         self._grid_host.setStyleSheet("background:transparent;")
         bl.addWidget(self._grid_host)
 
@@ -134,6 +136,18 @@ class MainWindow(QWidget):
         self._pencil.clicked.connect(self._toggle_edit)
         h.addWidget(self._pencil)
 
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setFont(QFont("Inter", 11))
+        close_btn.setStyleSheet(
+            "QPushButton{background:transparent;border:none;border-radius:8px;"
+            "color:rgba(255,255,255,102);}"
+            "QPushButton:hover{background:rgba(255,100,100,40);color:#ff7a7a;}"
+        )
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(self.close)
+        h.addWidget(close_btn)
+
         bar.mousePressEvent   = self._tb_press
         bar.mouseMoveEvent    = self._tb_move
         bar.mouseReleaseEvent = self._tb_release
@@ -192,10 +206,21 @@ class MainWindow(QWidget):
                 "color:rgba(255,255,255,153);"
             )
 
+    def _apply_cols(self, cols: int):
+        """Resize window/grid to fit col count; update cached metrics."""
+        grid_w, win_w, cell_x, cell_y = grid_metrics(cols)
+        self._cols      = cols
+        self._cell_size = CELL_SIZE
+        self._cell_x    = cell_x
+        self._cell_y    = cell_y
+        if win_w != self.width():
+            self.setFixedSize(win_w, WIN_H)
+            self._canvas.setGeometry(0, 0, win_w, WIN_H)
+            self._grid_host.setFixedWidth(grid_w)
+
     def _refresh_grid(self):
         table = self._active()
-        self._cols = table.get("cols", 4)
-        self._cell_size, self._cell_x, self._cell_y = grid_metrics(self._cols)
+        self._apply_cols(table.get("cols", 4))
 
         # Destroy old cell widgets immediately (setParent removes from display)
         for w in self._cell_widgets:
@@ -206,7 +231,7 @@ class MainWindow(QWidget):
         for i, cell in enumerate(table["cells"]):
             row, col = divmod(i, self._cols)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host,
-                           cell_size=self._cell_size)
+                           cell_size=CELL_SIZE)
             w.move(self._cell_x[col], self._cell_y[row])
             w.show()
             w.clicked.connect(self._cell_clicked)
@@ -296,7 +321,7 @@ class MainWindow(QWidget):
     def _open_modal(self, idx, cell, mode):
         self._close_modal()
         m = EditModal(cell, mode, self._canvas)
-        m.setGeometry(0, 0, WIN_W, WIN_H)
+        m.setGeometry(0, 0, self._canvas.width(), self._canvas.height())
         m.saved.connect(lambda c, i=idx: self._modal_save(i, c))
         m.deleted.connect(lambda i=idx: self._modal_delete(i))
         m.closed.connect(self._close_modal)
@@ -343,7 +368,7 @@ class MainWindow(QWidget):
         self._close_modal()
         can_delete = len(self._tables) > 1
         m = EditTableModal(table, can_delete, self._canvas)
-        m.setGeometry(0, 0, WIN_W, WIN_H)
+        m.setGeometry(0, 0, self._canvas.width(), self._canvas.height())
         m.saved.connect(lambda d, t=table: self._table_save(t["id"], d))
         m.deleted.connect(lambda t=table: self._table_delete(t["id"]))
         m.closed.connect(self._close_modal)
@@ -389,7 +414,7 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.hide()
             self._lifted.deleteLater()
-        self._lifted = LiftedCell(cell, self._canvas, cell_size=self._cell_size)
+        self._lifted = LiftedCell(cell, self._canvas)
         cp   = self._canvas.mapFromGlobal(QCursor.pos())
         half = self._lifted.width() // 2
         self._lifted.move(cp.x() - half, cp.y() - half)
@@ -457,8 +482,8 @@ class MainWindow(QWidget):
             return
         t   = TooltipWidget(cell, self._canvas)
         pos = cell_widget.mapTo(self._canvas, QPoint(cell_widget.width() // 2, cell_widget.height() + 10))
-        x   = min(max(pos.x(), 8), WIN_W - t.width() - 8)
-        y   = min(pos.y(), WIN_H - t.height() - 8)
+        x   = min(max(pos.x(), 8), self.width() - t.width() - 8)
+        y   = min(pos.y(), self.height() - t.height() - 8)
         t.move(x, y)
         t.raise_()
         t.show()
@@ -486,7 +511,7 @@ class MainWindow(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
-        path.addRoundedRect(0, 0, WIN_W, WIN_H, 16, 16)
+        path.addRoundedRect(0, 0, self.width(), self.height(), 16, 16)
         p.fillPath(path, QColor(BG))
 
     # ── keyboard shortcuts ─────────────────────────────────────────────────────

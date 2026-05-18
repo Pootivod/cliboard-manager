@@ -40,11 +40,13 @@ CELL_SIZE   = (GRID_W - 2*GRID_PAD_H - (GRID_COLS-1)*GRID_GAP) // GRID_COLS  # 8
 
 
 def grid_metrics(cols: int) -> tuple:
-    """Return (cell_size, cell_x_list, cell_y_list) for the given column count."""
-    cell_size = (GRID_W - 2*GRID_PAD_H - (cols - 1)*GRID_GAP) // cols
-    cell_x = [GRID_PAD_H + c * (cell_size + GRID_GAP) for c in range(cols)]
-    cell_y = [GRID_PAD_T + r * (cell_size + GRID_GAP) for r in range(GRID_ROWS)]
-    return cell_size, cell_x, cell_y
+    """Return (grid_w, win_w, cell_x_list, cell_y_list) for the given column count.
+    Cell size stays fixed; the window width grows/shrinks with column count."""
+    grid_w = 2*GRID_PAD_H + cols*CELL_SIZE + (cols - 1)*GRID_GAP
+    win_w  = SIDEBAR_W + grid_w
+    cell_x = [GRID_PAD_H + c * (CELL_SIZE + GRID_GAP) for c in range(cols)]
+    cell_y = [GRID_PAD_T + r * (CELL_SIZE + GRID_GAP) for r in range(GRID_ROWS)]
+    return grid_w, win_w, cell_x, cell_y
 
 # ── Design tokens (Indigo Dusk) ────────────────────────────────────────────────
 BG      = "#1e1e2e"
