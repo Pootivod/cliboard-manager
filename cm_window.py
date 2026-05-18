@@ -9,14 +9,18 @@ from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
 
 from cm_constants import (
     WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
-    GRID_PAD_H, GRID_PAD_T, GRID_PAD_B, GRID_GAP, GRID_COLS,
-    ACCENT, BG, SUCCESS,
+    GRID_W, GRID_PAD_H, GRID_PAD_T, GRID_PAD_B, GRID_GAP, GRID_COLS, GRID_SLOTS,
+    CELL_SIZE, ACCENT, BG, SUCCESS,
     load_state, save_state,
 )
 from cm_widgets import (
     CellWidget, LiftedCell, TooltipWidget,
     SidebarItem, AddTableButton, EditModal,
 )
+
+# precompute cell top-left positions (col, row → x, y)
+_CELL_X = [GRID_PAD_H + c * (CELL_SIZE + GRID_GAP) for c in range(GRID_COLS)]
+_CELL_Y = [GRID_PAD_T + r * (CELL_SIZE + GRID_GAP) for r in range(GRID_SLOTS // GRID_COLS)]
 
 
 class MainWindow(QWidget):
@@ -27,29 +31,28 @@ class MainWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        # state
-        self._edit_mode   = False
-        self._drag_idx    = None   # index of cell being reordered
-        self._drag_over   = None   # current drop-target index
-        self._lifted      = None   # LiftedCell overlay
-        self._tooltip     = None   # TooltipWidget overlay
-        self._modal       = None   # EditModal overlay
+        self._edit_mode        = False
+        self._drag_idx         = None
+        self._drag_over        = None
+        self._lifted           = None
+        self._tooltip          = None
+        self._modal            = None
         self._toolbar_drag_pos = None
+        self._cell_widgets: list[CellWidget] = []
 
         self._tables, self._active_id = load_state()
-        self._cell_widgets: list[CellWidget] = []
 
         self._build_ui()
         self._refresh()
 
-    # ── active table helper ────────────────────────────────────────────────────
+    # ── active table ───────────────────────────────────────────────────────────
     def _active(self):
         for t in self._tables:
             if t["id"] == self._active_id:
                 return t
         return self._tables[0]
 
-    # ── UI construction ────────────────────────────────────────────────────────
+    # ── one-time UI skeleton ───────────────────────────────────────────────────
     def _build_ui(self):
         self._canvas = QWidget(self)
         self._canvas.setGeometry(0, 0, WIN_W, WIN_H)
@@ -67,12 +70,13 @@ class MainWindow(QWidget):
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(0)
 
-        # grid area (fills remaining width)
+        # grid area — plain QWidget, cells positioned manually (no layout)
         self._grid_host = QWidget()
+        self._grid_host.setFixedSize(GRID_W, WIN_H - TOOLBAR_H - STATUSBAR_H)
         self._grid_host.setStyleSheet("background:transparent;")
-        bl.addWidget(self._grid_host, 1)
+        bl.addWidget(self._grid_host)
 
-        # sidebar (right, fixed width)
+        # sidebar — uses a VBoxLayout (vertical list only, no layout conflict)
         self._sidebar_host = QWidget()
         self._sidebar_host.setFixedWidth(SIDEBAR_W)
         self._sidebar_host.setStyleSheet(
@@ -97,8 +101,8 @@ class MainWindow(QWidget):
         )
         h = QHBoxLayout(bar)
         h.setContentsMargins(16, 0, 16, 0)
+        h.setSpacing(9)
 
-        # app icon
         icon = QLabel()
         icon.setFixedSize(22, 22)
         icon.setStyleSheet(
@@ -128,7 +132,6 @@ class MainWindow(QWidget):
         self._pencil.clicked.connect(self._toggle_edit)
         h.addWidget(self._pencil)
 
-        # drag to move window
         bar.mousePressEvent   = self._tb_press
         bar.mouseMoveEvent    = self._tb_move
         bar.mouseReleaseEvent = self._tb_release
@@ -156,7 +159,7 @@ class MainWindow(QWidget):
         h.addWidget(hint)
         return bar
 
-    # ── refresh ────────────────────────────────────────────────────────────────
+    # ── refresh (called on every state change) ─────────────────────────────────
     def _refresh(self):
         self._refresh_toolbar()
         self._refresh_grid()
@@ -164,8 +167,7 @@ class MainWindow(QWidget):
         self._refresh_status()
 
     def _refresh_toolbar(self):
-        t = self._active()
-        self._suffix.setText(f"· {t['name']}")
+        self._suffix.setText(f"· {self._active()['name']}")
         if self._edit_mode:
             self._toolbar_bar.setStyleSheet(
                 f"QWidget#toolbar{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
@@ -181,43 +183,33 @@ class MainWindow(QWidget):
                 "border-bottom:1px solid rgba(255,255,255,13);}"
             )
             self._pencil.setStyleSheet(
-                "background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.6);"
+                "background:transparent;border:none;border-radius:8px;"
+                "color:rgba(255,255,255,.6);"
             )
 
     def _refresh_grid(self):
-        # clear
-        old = self._grid_host.layout()
-        if old:
-            while old.count():
-                w = old.takeAt(0).widget()
-                if w:
-                    w.deleteLater()
-            old.deleteLater()
-
-        from PyQt6.QtWidgets import QGridLayout
-        gl = QGridLayout(self._grid_host)
-        gl.setContentsMargins(GRID_PAD_H, GRID_PAD_T, GRID_PAD_H, GRID_PAD_B)
-        gl.setHorizontalSpacing(GRID_GAP)
-        gl.setVerticalSpacing(GRID_GAP)
-        # all columns equal weight
-        for c in range(GRID_COLS):
-            gl.setColumnStretch(c, 1)
-
+        # Destroy old cell widgets immediately (setParent removes from display)
+        for w in self._cell_widgets:
+            w.setParent(None)
         self._cell_widgets = []
+
+        # Manually position each cell — guarantees pixel-perfect equal gaps
         for i, cell in enumerate(self._active()["cells"]):
             row, col = divmod(i, GRID_COLS)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host)
+            w.move(_CELL_X[col], _CELL_Y[row])
+            w.show()
             w.clicked.connect(self._cell_clicked)
             w.drag_start.connect(self._drag_start)
-            gl.addWidget(w, row, col)
             self._cell_widgets.append(w)
 
     def _refresh_sidebar(self):
         lo = self._sidebar_vbox
+        # Remove all children immediately via setParent(None)
         while lo.count():
             item = lo.takeAt(0)
             if item.widget():
-                item.widget().deleteLater()
+                item.widget().setParent(None)
 
         for t in self._tables:
             si = SidebarItem(t, t["id"] == self._active_id)
@@ -332,7 +324,7 @@ class MainWindow(QWidget):
             self._lifted.hide()
             self._lifted.deleteLater()
         self._lifted = LiftedCell(cell, self._canvas)
-        cp = self._canvas.mapFromGlobal(QCursor.pos())
+        cp   = self._canvas.mapFromGlobal(QCursor.pos())
         half = self._lifted.width() // 2
         self._lifted.move(cp.x() - half, cp.y() - half)
         self._lifted.show()
@@ -350,7 +342,7 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.move(pos.x() - half, pos.y() - half)
 
-        # find which cell is under cursor
+        # find drop target using precomputed positions
         gp       = self._grid_host.mapFrom(self, pos)
         new_over = None
         for i, w in enumerate(self._cell_widgets):
@@ -406,11 +398,10 @@ class MainWindow(QWidget):
 
     def hide_tooltip(self):
         if self._tooltip:
-            self._tooltip.hide()
-            self._tooltip.deleteLater()
+            self._tooltip.setParent(None)
             self._tooltip = None
 
-    # ── toolbar drag-to-move ───────────────────────────────────────────────────
+    # ── toolbar drag-to-move window ────────────────────────────────────────────
     def _tb_press(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self._toolbar_drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -422,7 +413,7 @@ class MainWindow(QWidget):
     def _tb_release(self, _):
         self._toolbar_drag_pos = None
 
-    # ── window paint (rounded background) ─────────────────────────────────────
+    # ── window background ──────────────────────────────────────────────────────
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -430,15 +421,14 @@ class MainWindow(QWidget):
         path.addRoundedRect(0, 0, WIN_W, WIN_H, 16, 16)
         p.fillPath(path, QColor(BG))
 
-    # ── keyboard ───────────────────────────────────────────────────────────────
+    # ── keyboard shortcuts ─────────────────────────────────────────────────────
     def keyPressEvent(self, e):
         ctrl = Qt.KeyboardModifier.ControlModifier
-        mods = e.modifiers()
-        if mods & ctrl and e.key() == Qt.Key.Key_E:
+        if e.modifiers() & ctrl and e.key() == Qt.Key.Key_E:
             self._toggle_edit()
         elif e.key() == Qt.Key.Key_Escape:
             self._close_modal()
-        elif mods & ctrl:
+        elif e.modifiers() & ctrl:
             for i, t in enumerate(self._tables):
                 if e.key() == Qt.Key.Key_1 + i:
                     self._switch_table(t["id"])
