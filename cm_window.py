@@ -106,19 +106,21 @@ class MainWindow(QWidget):
         icon = QLabel()
         icon.setFixedSize(22, 22)
         icon.setStyleSheet(
-            f"background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}aa);"
+            f"background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {ACCENT},stop:1 rgba(124,106,247,170));"
             "border-radius:7px;"
         )
         h.addWidget(icon)
 
         title = QLabel("Clipboard")
+        # background:transparent prevents the label from covering the toolbar gradient
         title.setStyleSheet(
-            "color:rgba(255,255,255,.92);font-size:13px;font-weight:600;letter-spacing:.1px;"
+            "background:transparent;"
+            "color:rgba(255,255,255,235);font-size:13px;font-weight:600;letter-spacing:.1px;"
         )
         h.addWidget(title)
 
         self._suffix = QLabel()
-        self._suffix.setStyleSheet("color:rgba(255,255,255,.4);font-size:11px;")
+        self._suffix.setStyleSheet("background:transparent;color:rgba(255,255,255,102);font-size:11px;")
         h.addWidget(self._suffix)
         h.addStretch()
 
@@ -126,7 +128,7 @@ class MainWindow(QWidget):
         self._pencil.setFixedSize(28, 28)
         self._pencil.setFont(QFont("Inter", 13))
         self._pencil.setStyleSheet(
-            "background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.6);"
+            "background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,153);"
         )
         self._pencil.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pencil.clicked.connect(self._toggle_edit)
@@ -169,13 +171,16 @@ class MainWindow(QWidget):
     def _refresh_toolbar(self):
         self._suffix.setText(f"· {self._active()['name']}")
         if self._edit_mode:
+            # rgba() instead of #RRGGBBAA — Qt QSS does not support 8-digit hex alpha
             self._toolbar_bar.setStyleSheet(
-                f"QWidget#toolbar{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                f"stop:0 {ACCENT}1f,stop:1 {ACCENT}0a);"
-                f"border-bottom:1px solid {ACCENT}55;}}"
+                "QWidget#toolbar{"
+                "background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                "stop:0 rgba(124,106,247,45),stop:1 rgba(124,106,247,15));"
+                "border-bottom:1px solid rgba(124,106,247,90);}"
             )
             self._pencil.setStyleSheet(
-                f"background:{ACCENT}33;border:none;border-radius:8px;color:{ACCENT};"
+                f"background:rgba(124,106,247,60);border:none;"
+                f"border-radius:8px;color:{ACCENT};"
             )
         else:
             self._toolbar_bar.setStyleSheet(
@@ -184,7 +189,7 @@ class MainWindow(QWidget):
             )
             self._pencil.setStyleSheet(
                 "background:transparent;border:none;border-radius:8px;"
-                "color:rgba(255,255,255,.6);"
+                "color:rgba(255,255,255,153);"
             )
 
     def _refresh_grid(self):

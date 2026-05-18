@@ -213,8 +213,8 @@ class EmojiPickerWidget(QWidget):
     @staticmethod
     def _cat_style(active: bool) -> str:
         if active:
-            return (f"QPushButton{{font-size:14px;background:{ACCENT}33;"
-                    f"border:1px solid {ACCENT}88;border-radius:5px;padding:0;}}")
+            return (f"QPushButton{{font-size:14px;background:rgba(124,106,247,51);"
+                    f"border:1px solid rgba(124,106,247,136);border-radius:5px;padding:0;}}")
         return ("QPushButton{font-size:14px;background:transparent;border:none;"
                 "border-radius:5px;padding:0;}"
                 "QPushButton:hover{background:rgba(255,255,255,0.1);}")
@@ -598,7 +598,7 @@ class AddTableButton(QWidget):
 #  Shared modal base
 # ══════════════════════════════════════════════════════════════════════════════
 def _input_style(focus_border=True):
-    fb = f"border:1px solid {ACCENT}88;" if focus_border else ""
+    fb = "border:1px solid rgba(124,106,247,136);" if focus_border else ""
     return (f"QLineEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);"
             f"border-radius:8px;padding:0 10px;color:rgba(255,255,255,.92);font-size:12px;}}"
             f"QLineEdit:focus{{{fb}}}")
@@ -608,7 +608,7 @@ def _textarea_style():
     return (f"QTextEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);"
             f"border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.78);"
             f"font-family:'JetBrains Mono';font-size:10px;line-height:1.45;}}"
-            f"QTextEdit:focus{{border:1px solid {ACCENT}88;}}")
+            f"QTextEdit:focus{{border:1px solid rgba(124,106,247,136);}}")
 
 
 def _field_label(text: str) -> QLabel:
@@ -707,7 +707,7 @@ class EditModal(QWidget):
         save.setFixedHeight(30)
         save.setStyleSheet(
             f"QPushButton{{padding:0 16px;border-radius:8px;border:none;"
-            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}cc);"
+            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 rgba(124,106,247,204));"
             f"color:white;font-size:11px;font-weight:600;}}")
         save.setCursor(Qt.CursorShape.PointingHandCursor)
         save.clicked.connect(self._on_save)
@@ -814,7 +814,7 @@ class EditTableModal(QWidget):
         save.setFixedHeight(30)
         save.setStyleSheet(
             f"QPushButton{{padding:0 16px;border-radius:8px;border:none;"
-            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}cc);"
+            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 rgba(124,106,247,204));"
             f"color:white;font-size:11px;font-weight:600;}}")
         save.setCursor(Qt.CursorShape.PointingHandCursor)
         save.clicked.connect(self._on_save)
