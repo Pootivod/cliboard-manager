@@ -1,0 +1,447 @@
+"""
+Clipboard Manager — MainWindow
+"""
+import uuid
+
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QApplication
+from PyQt6.QtCore    import Qt, QTimer, QPoint
+from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
+
+from cm_constants import (
+    WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
+    GRID_PAD_H, GRID_PAD_T, GRID_PAD_B, GRID_GAP, GRID_COLS,
+    ACCENT, BG, SUCCESS,
+    load_state, save_state,
+)
+from cm_widgets import (
+    CellWidget, LiftedCell, TooltipWidget,
+    SidebarItem, AddTableButton, EditModal,
+)
+
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Clipboard Manager")
+        self.setFixedSize(WIN_W, WIN_H)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        # state
+        self._edit_mode   = False
+        self._drag_idx    = None   # index of cell being reordered
+        self._drag_over   = None   # current drop-target index
+        self._lifted      = None   # LiftedCell overlay
+        self._tooltip     = None   # TooltipWidget overlay
+        self._modal       = None   # EditModal overlay
+        self._toolbar_drag_pos = None
+
+        self._tables, self._active_id = load_state()
+        self._cell_widgets: list[CellWidget] = []
+
+        self._build_ui()
+        self._refresh()
+
+    # ── active table helper ────────────────────────────────────────────────────
+    def _active(self):
+        for t in self._tables:
+            if t["id"] == self._active_id:
+                return t
+        return self._tables[0]
+
+    # ── UI construction ────────────────────────────────────────────────────────
+    def _build_ui(self):
+        self._canvas = QWidget(self)
+        self._canvas.setGeometry(0, 0, WIN_W, WIN_H)
+        self._canvas.setStyleSheet(f"background:{BG};border-radius:16px;")
+
+        root = QVBoxLayout(self._canvas)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._mk_toolbar())
+
+        body = QWidget()
+        body.setStyleSheet("background:transparent;")
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(0)
+
+        # grid area (fills remaining width)
+        self._grid_host = QWidget()
+        self._grid_host.setStyleSheet("background:transparent;")
+        bl.addWidget(self._grid_host, 1)
+
+        # sidebar (right, fixed width)
+        self._sidebar_host = QWidget()
+        self._sidebar_host.setFixedWidth(SIDEBAR_W)
+        self._sidebar_host.setStyleSheet(
+            "background:transparent;border-left:1px solid rgba(255,255,255,9);"
+        )
+        self._sidebar_vbox = QVBoxLayout(self._sidebar_host)
+        self._sidebar_vbox.setContentsMargins(0, 14, 0, 14)
+        self._sidebar_vbox.setSpacing(2)
+        self._sidebar_vbox.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        bl.addWidget(self._sidebar_host)
+
+        root.addWidget(body, 1)
+        root.addWidget(self._mk_statusbar())
+
+    def _mk_toolbar(self):
+        bar = QWidget()
+        bar.setFixedHeight(TOOLBAR_H)
+        bar.setObjectName("toolbar")
+        bar.setStyleSheet(
+            "QWidget#toolbar{background:rgba(255,255,255,5);"
+            "border-bottom:1px solid rgba(255,255,255,13);}"
+        )
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(16, 0, 16, 0)
+
+        # app icon
+        icon = QLabel()
+        icon.setFixedSize(22, 22)
+        icon.setStyleSheet(
+            f"background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}aa);"
+            "border-radius:7px;"
+        )
+        h.addWidget(icon)
+
+        title = QLabel("Clipboard")
+        title.setStyleSheet(
+            "color:rgba(255,255,255,.92);font-size:13px;font-weight:600;letter-spacing:.1px;"
+        )
+        h.addWidget(title)
+
+        self._suffix = QLabel()
+        self._suffix.setStyleSheet("color:rgba(255,255,255,.4);font-size:11px;")
+        h.addWidget(self._suffix)
+        h.addStretch()
+
+        self._pencil = QPushButton("✎")
+        self._pencil.setFixedSize(28, 28)
+        self._pencil.setFont(QFont("Inter", 13))
+        self._pencil.setStyleSheet(
+            "background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.6);"
+        )
+        self._pencil.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pencil.clicked.connect(self._toggle_edit)
+        h.addWidget(self._pencil)
+
+        # drag to move window
+        bar.mousePressEvent   = self._tb_press
+        bar.mouseMoveEvent    = self._tb_move
+        bar.mouseReleaseEvent = self._tb_release
+        self._toolbar_bar = bar
+        return bar
+
+    def _mk_statusbar(self):
+        bar = QWidget()
+        bar.setFixedHeight(STATUSBAR_H)
+        bar.setStyleSheet(
+            "background:rgba(255,255,255,5);border-top:1px solid rgba(255,255,255,10);"
+        )
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(14, 0, 14, 0)
+        self._status_lbl = QLabel()
+        self._status_lbl.setStyleSheet(
+            f"color:{SUCCESS};font-size:10px;font-weight:500;letter-spacing:.3px;"
+        )
+        hint = QLabel("Ctrl+V")
+        hint.setStyleSheet(
+            "color:rgba(255,255,255,.32);font-family:'JetBrains Mono';font-size:10px;"
+        )
+        h.addWidget(self._status_lbl)
+        h.addStretch()
+        h.addWidget(hint)
+        return bar
+
+    # ── refresh ────────────────────────────────────────────────────────────────
+    def _refresh(self):
+        self._refresh_toolbar()
+        self._refresh_grid()
+        self._refresh_sidebar()
+        self._refresh_status()
+
+    def _refresh_toolbar(self):
+        t = self._active()
+        self._suffix.setText(f"· {t['name']}")
+        if self._edit_mode:
+            self._toolbar_bar.setStyleSheet(
+                f"QWidget#toolbar{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                f"stop:0 {ACCENT}1f,stop:1 {ACCENT}0a);"
+                f"border-bottom:1px solid {ACCENT}55;}}"
+            )
+            self._pencil.setStyleSheet(
+                f"background:{ACCENT}33;border:none;border-radius:8px;color:{ACCENT};"
+            )
+        else:
+            self._toolbar_bar.setStyleSheet(
+                "QWidget#toolbar{background:rgba(255,255,255,5);"
+                "border-bottom:1px solid rgba(255,255,255,13);}"
+            )
+            self._pencil.setStyleSheet(
+                "background:transparent;border:none;border-radius:8px;color:rgba(255,255,255,.6);"
+            )
+
+    def _refresh_grid(self):
+        # clear
+        old = self._grid_host.layout()
+        if old:
+            while old.count():
+                w = old.takeAt(0).widget()
+                if w:
+                    w.deleteLater()
+            old.deleteLater()
+
+        from PyQt6.QtWidgets import QGridLayout
+        gl = QGridLayout(self._grid_host)
+        gl.setContentsMargins(GRID_PAD_H, GRID_PAD_T, GRID_PAD_H, GRID_PAD_B)
+        gl.setHorizontalSpacing(GRID_GAP)
+        gl.setVerticalSpacing(GRID_GAP)
+        # all columns equal weight
+        for c in range(GRID_COLS):
+            gl.setColumnStretch(c, 1)
+
+        self._cell_widgets = []
+        for i, cell in enumerate(self._active()["cells"]):
+            row, col = divmod(i, GRID_COLS)
+            w = CellWidget(i, cell, self._edit_mode, self._grid_host)
+            w.clicked.connect(self._cell_clicked)
+            w.drag_start.connect(self._drag_start)
+            gl.addWidget(w, row, col)
+            self._cell_widgets.append(w)
+
+    def _refresh_sidebar(self):
+        lo = self._sidebar_vbox
+        while lo.count():
+            item = lo.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for t in self._tables:
+            si = SidebarItem(t, t["id"] == self._active_id)
+            si.clicked.connect(self._switch_table)
+            lo.addWidget(si)
+
+        lo.addStretch()
+
+        if self._edit_mode:
+            add = AddTableButton()
+            add.clicked.connect(self._add_table)
+            lo.addWidget(add)
+
+    def _refresh_status(self, msg=None):
+        cells = self._active()["cells"]
+        if msg:
+            self._status_lbl.setText(msg)
+            self._status_lbl.setStyleSheet(
+                f"color:{ACCENT};font-size:10px;font-weight:500;letter-spacing:.3px;"
+            )
+            return
+        if self._edit_mode:
+            self._status_lbl.setText("● EDIT MODE")
+            self._status_lbl.setStyleSheet(
+                f"color:{ACCENT};font-size:10px;font-weight:500;letter-spacing:.3px;"
+            )
+        else:
+            n  = sum(1 for c in cells if c)
+            fr = sum(1 for c in cells if not c)
+            self._status_lbl.setText(f"● {n} ITEMS · {fr} FREE")
+            self._status_lbl.setStyleSheet(
+                f"color:{SUCCESS};font-size:10px;font-weight:500;letter-spacing:.3px;"
+            )
+
+    # ── actions ────────────────────────────────────────────────────────────────
+    def _toggle_edit(self):
+        self._edit_mode = not self._edit_mode
+        self.hide_tooltip()
+        self._close_modal()
+        self._refresh()
+
+    def _switch_table(self, tid):
+        self._active_id = tid
+        self.hide_tooltip()
+        self._close_modal()
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    def _add_table(self):
+        tid = str(uuid.uuid4())[:8]
+        self._tables.append({
+            "id": tid, "emoji": "📂", "name": "New", "cells": [None]*12
+        })
+        self._active_id = tid
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    def _cell_clicked(self, idx):
+        cell = self._active()["cells"][idx]
+        if self._edit_mode:
+            self._open_modal(idx, cell, "edit" if cell else "new")
+        elif cell:
+            self._copy(idx, cell)
+
+    def _copy(self, idx, cell):
+        QApplication.clipboard().setText(cell["text"])
+        if idx < len(self._cell_widgets):
+            self._cell_widgets[idx].flash_copy()
+        self._refresh_status("● COPIED")
+        QTimer.singleShot(1500, self._refresh_status)
+
+    def _open_modal(self, idx, cell, mode):
+        self._close_modal()
+        m = EditModal(cell, mode, self._canvas)
+        m.setGeometry(0, 0, WIN_W, WIN_H)
+        m.saved.connect(lambda c, i=idx: self._modal_save(i, c))
+        m.deleted.connect(lambda i=idx: self._modal_delete(i))
+        m.closed.connect(self._close_modal)
+        m.show()
+        self._modal = m
+
+    def _close_modal(self):
+        if self._modal:
+            self._modal.hide()
+            self._modal.deleteLater()
+            self._modal = None
+
+    def _modal_save(self, idx, cell):
+        self._active()["cells"][idx] = cell
+        self._close_modal()
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    def _modal_delete(self, idx):
+        self._active()["cells"][idx] = None
+        self._close_modal()
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    # ── internal drag-to-reorder (edit mode) ───────────────────────────────────
+    def _drag_start(self, from_idx):
+        cell = self._active()["cells"][from_idx]
+        if cell is None:
+            return
+        self._drag_idx  = from_idx
+        self._drag_over = None
+
+        if from_idx < len(self._cell_widgets):
+            self._cell_widgets[from_idx].set_placeholder(True)
+
+        if self._lifted:
+            self._lifted.hide()
+            self._lifted.deleteLater()
+        self._lifted = LiftedCell(cell, self._canvas)
+        cp = self._canvas.mapFromGlobal(QCursor.pos())
+        half = self._lifted.width() // 2
+        self._lifted.move(cp.x() - half, cp.y() - half)
+        self._lifted.show()
+        self._lifted.raise_()
+
+        self.setMouseTracking(True)
+        self._canvas.setMouseTracking(True)
+        self._grid_host.setMouseTracking(True)
+
+    def mouseMoveEvent(self, e):
+        if self._drag_idx is None:
+            return
+        pos  = e.pos()
+        half = self._lifted.width() // 2 if self._lifted else 46
+        if self._lifted:
+            self._lifted.move(pos.x() - half, pos.y() - half)
+
+        # find which cell is under cursor
+        gp       = self._grid_host.mapFrom(self, pos)
+        new_over = None
+        for i, w in enumerate(self._cell_widgets):
+            if i == self._drag_idx:
+                continue
+            if w.rect().contains(w.mapFrom(self._grid_host, gp)):
+                new_over = i
+                break
+
+        if new_over != self._drag_over:
+            if self._drag_over is not None and self._drag_over < len(self._cell_widgets):
+                self._cell_widgets[self._drag_over].set_drop_target(False)
+            self._drag_over = new_over
+            if new_over is not None and new_over < len(self._cell_widgets):
+                self._cell_widgets[new_over].set_drop_target(True)
+
+    def mouseReleaseEvent(self, e):
+        if self._drag_idx is None:
+            return
+        if self._drag_over is not None:
+            cells = self._active()["cells"]
+            cells[self._drag_idx], cells[self._drag_over] = (
+                cells[self._drag_over], cells[self._drag_idx]
+            )
+            save_state(self._tables, self._active_id)
+
+        if self._lifted:
+            self._lifted.hide()
+            self._lifted.deleteLater()
+            self._lifted = None
+
+        self._drag_idx  = None
+        self._drag_over = None
+        self.setMouseTracking(False)
+        self._canvas.setMouseTracking(False)
+        self._grid_host.setMouseTracking(False)
+        self._refresh()
+
+    # ── tooltip ────────────────────────────────────────────────────────────────
+    def show_tooltip(self, idx, cell_widget):
+        self.hide_tooltip()
+        cell = self._active()["cells"][idx]
+        if not cell:
+            return
+        t   = TooltipWidget(cell, self._canvas)
+        pos = cell_widget.mapTo(self._canvas, QPoint(cell_widget.width() // 2, cell_widget.height() + 10))
+        x   = min(max(pos.x(), 8), WIN_W - t.width() - 8)
+        y   = min(pos.y(), WIN_H - t.height() - 8)
+        t.move(x, y)
+        t.raise_()
+        t.show()
+        self._tooltip = t
+
+    def hide_tooltip(self):
+        if self._tooltip:
+            self._tooltip.hide()
+            self._tooltip.deleteLater()
+            self._tooltip = None
+
+    # ── toolbar drag-to-move ───────────────────────────────────────────────────
+    def _tb_press(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._toolbar_drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _tb_move(self, e):
+        if self._toolbar_drag_pos and e.buttons() == Qt.MouseButton.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._toolbar_drag_pos)
+
+    def _tb_release(self, _):
+        self._toolbar_drag_pos = None
+
+    # ── window paint (rounded background) ─────────────────────────────────────
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, WIN_W, WIN_H, 16, 16)
+        p.fillPath(path, QColor(BG))
+
+    # ── keyboard ───────────────────────────────────────────────────────────────
+    def keyPressEvent(self, e):
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        mods = e.modifiers()
+        if mods & ctrl and e.key() == Qt.Key.Key_E:
+            self._toggle_edit()
+        elif e.key() == Qt.Key.Key_Escape:
+            self._close_modal()
+        elif mods & ctrl:
+            for i, t in enumerate(self._tables):
+                if e.key() == Qt.Key.Key_1 + i:
+                    self._switch_table(t["id"])
+                    break
+        else:
+            super().keyPressEvent(e)
