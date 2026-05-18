@@ -233,10 +233,27 @@ class MainWindow(QWidget):
         self._ghost_widgets = []
 
         cells = table["cells"]
-        for i, cell in enumerate(cells):
+
+        # In edit mode: find the last row that has any non-None cell and
+        # only render up to that row — empty trailing rows are hidden so
+        # the ghost row appears immediately after the last occupied row.
+        if self._edit_mode:
+            last_occupied_row = -1
+            for i in range(len(cells) - 1, -1, -1):
+                if cells[i] is not None:
+                    last_occupied_row = i // self._cols
+                    break
+            visible_count = (last_occupied_row + 1) * self._cols if last_occupied_row >= 0 \
+                            else min(self._cols, len(cells))
+        else:
+            visible_count = len(cells)
+            last_occupied_row = -1  # unused in non-edit mode
+
+        for i in range(visible_count):
+            cell = cells[i] if i < len(cells) else None
             row, col = divmod(i, self._cols)
             x = self._cell_x[col]
-            y = self._cell_y[0] + row * (CELL_SIZE + GRID_GAP)
+            y = self._cell_y[0] + row * (self._cell_size + GRID_GAP)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host,
                            cell_size=self._cell_size)
             w.move(x, y)
@@ -245,23 +262,21 @@ class MainWindow(QWidget):
             w.drag_start.connect(self._drag_start)
             self._cell_widgets.append(w)
 
-        # Ghost row: in edit mode, if any cell in the last row is filled,
-        # show a dashed-plus row below to allow adding more cells.
-        if self._edit_mode:
-            actual_rows   = len(cells) // self._cols
-            last_row_start = (actual_rows - 1) * self._cols
-            if any(cells[last_row_start:]):
-                ghost_y = self._cell_y[0] + actual_rows * (self._cell_size + GRID_GAP)
-                if ghost_y + self._cell_size <= _GRID_HOST_H:
-                    ghost_base = len(cells)
-                    for col in range(self._cols):
-                        ghost_idx = ghost_base + col
-                        w = CellWidget(ghost_idx, None, True, self._grid_host,
-                                       cell_size=CELL_SIZE)
-                        w.move(self._cell_x[col], ghost_y)
-                        w.show()
-                        w.clicked.connect(self._expand_clicked)
-                        self._ghost_widgets.append(w)
+        # Ghost row: in edit mode, always show one empty row after the last
+        # row with any cell so the user can expand the table.
+        if self._edit_mode and last_occupied_row >= 0:
+            ghost_row = last_occupied_row + 1
+            ghost_y   = self._cell_y[0] + ghost_row * (self._cell_size + GRID_GAP)
+            if ghost_y + self._cell_size <= _GRID_HOST_H:
+                ghost_base = ghost_row * self._cols
+                for col in range(self._cols):
+                    ghost_idx = ghost_base + col
+                    w = CellWidget(ghost_idx, None, True, self._grid_host,
+                                   cell_size=self._cell_size)
+                    w.move(self._cell_x[col], ghost_y)
+                    w.show()
+                    w.clicked.connect(self._expand_clicked)
+                    self._ghost_widgets.append(w)
 
     def _refresh_sidebar(self):
         lo = self._sidebar_vbox
@@ -387,11 +402,14 @@ class MainWindow(QWidget):
         save_state(self._tables, self._active_id)
 
     def _expand_clicked(self, ghost_idx):
-        """Extend the cells array by one row and open a new-cell modal."""
+        """Ensure ghost_idx exists in the array, then open the edit modal."""
         cells = self._active()["cells"]
-        cells.extend([None] * self._cols)
-        save_state(self._tables, self._active_id)
-        self._refresh_grid()
+        if ghost_idx >= len(cells):
+            # Extend to the full row that contains ghost_idx
+            new_len = ((ghost_idx // self._cols) + 1) * self._cols
+            cells.extend([None] * (new_len - len(cells)))
+            save_state(self._tables, self._active_id)
+            self._refresh_grid()
         self._open_modal(ghost_idx, None, "new")
 
     # ── table edit / reorder ───────────────────────────────────────────────────
@@ -537,7 +555,12 @@ class MainWindow(QWidget):
                 if None in target["cells"]:
                     target["cells"][target["cells"].index(None)] = src_cell
                 else:
-                    target["cells"].append(src_cell)
+                    t_cols = target.get("cols", 4)
+                    while len(target["cells"]) % t_cols != 0:
+                        target["cells"].append(None)
+                    row = [None] * t_cols
+                    row[0] = src_cell
+                    target["cells"].extend(row)
                 save_state(self._tables, self._active_id)
             for si in self._sidebar_items:
                 si.set_drop_target(False)

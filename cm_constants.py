@@ -28,8 +28,8 @@ STATUSBAR_H = 28
 
 # ── Grid geometry (all derived, never hard-coded elsewhere) ────────────────────
 GRID_W      = WIN_W - SIDEBAR_W          # 404 px
-GRID_PAD_H  = 12                         # left / right padding
-GRID_PAD_T  = 14
+GRID_PAD_H  = 10                         # left / right padding
+GRID_PAD_T  = 10                         # top padding (= GRID_PAD_H for uniform spacing)
 GRID_PAD_B  = 10
 GRID_GAP    = 9
 GRID_ROWS   = 3
