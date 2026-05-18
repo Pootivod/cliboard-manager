@@ -15,7 +15,7 @@ from cm_constants import (
 )
 from cm_widgets import (
     CellWidget, LiftedCell, TooltipWidget,
-    SidebarItem, AddTableButton, EditModal,
+    SidebarItem, AddTableButton, EditModal, EditTableModal,
 )
 
 # precompute cell top-left positions (col, row → x, y)
@@ -205,15 +205,17 @@ class MainWindow(QWidget):
 
     def _refresh_sidebar(self):
         lo = self._sidebar_vbox
-        # Remove all children immediately via setParent(None)
         while lo.count():
             item = lo.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
 
         for t in self._tables:
-            si = SidebarItem(t, t["id"] == self._active_id)
+            si = SidebarItem(t, t["id"] == self._active_id, self._edit_mode)
             si.clicked.connect(self._switch_table)
+            si.move_up.connect(self._table_move_up)
+            si.move_down.connect(self._table_move_down)
+            si.edit_table.connect(self._open_table_modal)
             lo.addWidget(si)
 
         lo.addStretch()
@@ -305,6 +307,53 @@ class MainWindow(QWidget):
 
     def _modal_delete(self, idx):
         self._active()["cells"][idx] = None
+        self._close_modal()
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    # ── table edit / reorder ───────────────────────────────────────────────────
+    def _table_move_up(self, tid):
+        idx = next((i for i, t in enumerate(self._tables) if t["id"] == tid), -1)
+        if idx > 0:
+            self._tables[idx-1], self._tables[idx] = self._tables[idx], self._tables[idx-1]
+            self._refresh()
+            save_state(self._tables, self._active_id)
+
+    def _table_move_down(self, tid):
+        idx = next((i for i, t in enumerate(self._tables) if t["id"] == tid), -1)
+        if idx >= 0 and idx < len(self._tables) - 1:
+            self._tables[idx], self._tables[idx+1] = self._tables[idx+1], self._tables[idx]
+            self._refresh()
+            save_state(self._tables, self._active_id)
+
+    def _open_table_modal(self, tid):
+        table = next((t for t in self._tables if t["id"] == tid), None)
+        if not table:
+            return
+        self._close_modal()
+        can_delete = len(self._tables) > 1
+        m = EditTableModal(table, can_delete, self._canvas)
+        m.setGeometry(0, 0, WIN_W, WIN_H)
+        m.saved.connect(lambda d, t=table: self._table_save(t["id"], d))
+        m.deleted.connect(lambda t=table: self._table_delete(t["id"]))
+        m.closed.connect(self._close_modal)
+        m.show()
+        self._modal = m
+
+    def _table_save(self, tid, data):
+        for t in self._tables:
+            if t["id"] == tid:
+                t["emoji"] = data["emoji"]
+                t["name"]  = data["name"]
+                break
+        self._close_modal()
+        self._refresh()
+        save_state(self._tables, self._active_id)
+
+    def _table_delete(self, tid):
+        self._tables = [t for t in self._tables if t["id"] != tid]
+        if self._active_id == tid:
+            self._active_id = self._tables[0]["id"]
         self._close_modal()
         self._refresh()
         save_state(self._tables, self._active_id)

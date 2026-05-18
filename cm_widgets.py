@@ -4,6 +4,7 @@ Clipboard Manager — all reusable widgets
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QLineEdit, QTextEdit, QPushButton,
     QHBoxLayout, QVBoxLayout, QFrame, QGraphicsDropShadowEffect,
+    QScrollArea,
 )
 from PyQt6.QtCore  import Qt, QTimer, QPoint, QRect, QRectF, QSize, pyqtSignal, QMimeData
 from PyQt6.QtGui   import (
@@ -14,42 +15,253 @@ from cm_constants import (
     ACCENT, BG, PANEL, CARD, SUCCESS, DANGER, CELL_SIZE, PICKER_EMOJI,
 )
 
-
-# ── Colour helpers ─────────────────────────────────────────────────────────────
+# ── Colour helper ──────────────────────────────────────────────────────────────
 def _ac(alpha: int) -> QColor:
     c = QColor(ACCENT)
     c.setAlpha(alpha)
     return c
+
+# ── Emoji categories ───────────────────────────────────────────────────────────
+EMOJI_CATEGORIES = [
+    ("😊", "Смайлы", [
+        "😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇",
+        "🥰","😍","🤩","😘","😗","😚","😙","😋","😛","😜","🤪","😝","🤑",
+        "🤗","🤔","🤐","😐","😑","😶","😏","😒","🙄","😬","😌","😔","😪",
+        "😴","😷","🤒","🤕","🤢","🤧","🥵","🥶","😵","🤯","🤠","🥳","😎",
+        "🤓","🧐","😕","😟","🙁","☹️","😮","😲","😳","🥺","😦","😧","😨",
+        "😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","😤","😡",
+        "😠","🤬","😈","👿","💀","☠️","💩","🤡","👹","👻","👽","🤖",
+    ]),
+    ("👋", "Жесты", [
+        "👋","🤚","🖐","✋","🖖","👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙",
+        "👈","👉","👆","🖕","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏",
+        "🙌","👐","🤲","🤝","🙏","✍️","💅","💪","💋","👄","👅","👁","👀",
+        "👤","👥","🫂","🧠","🦷","🦴","👂","👃",
+    ]),
+    ("🐶", "Животные", [
+        "🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷",
+        "🐸","🐵","🐔","🐧","🐦","🦆","🦅","🦉","🦇","🐺","🐴","🦄","🐝",
+        "🦋","🐌","🐞","🐜","🐢","🐍","🦎","🐙","🦑","🐡","🐠","🐟","🐬",
+        "🐳","🦈","🐊","🐘","🦏","🦛","🦒","🦘","🐕","🐈","🐓","🦃","🕊",
+        "🐇","🦝","🦦","🐁","🐀","🐿","🦔",
+    ]),
+    ("🌺", "Природа", [
+        "🌸","💐","🌹","🥀","🌺","🌻","🌼","🌷","🌱","🌲","🌳","🌴","🌵",
+        "🌾","🌿","☘️","🍀","🍁","🍂","🍃","🍄","🌰","🌍","🌎","🌏","🌙",
+        "🌟","💫","✨","⚡","☄️","💥","🔥","🌈","☀️","⛅","☁️","🌧","⛈",
+        "❄️","☃️","⛄","💨","🌪","🌊","💧","💦","🌀",
+    ]),
+    ("🍕", "Еда", [
+        "🍎","🍊","🍋","🍇","🍓","🫐","🍒","🍑","🥭","🍍","🥥","🥝","🍅",
+        "🍆","🥑","🥦","🌽","🥕","🍞","🥐","🥚","🍳","🥞","🧇","🥓","🥩",
+        "🍗","🍖","🌭","🍔","🍟","🍕","🌮","🌯","🥙","🍿","🥫","🍱","🍣",
+        "🍜","🍝","🍛","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬",
+        "🍭","🍯","☕","🍵","🧃","🥤","🧋","🍺","🍷","🥂","🍸","🍹","🧉",
+    ]),
+    ("⚽", "Активность", [
+        "⚽","🏀","🏈","⚾","🎾","🏐","🏉","🎱","🏓","🏸","🥊","🥋","🎽",
+        "🛹","🛷","⛸","🎿","⛷","🏂","🏋️","🏄","🏊","🚣","🚵","🚴","🏆",
+        "🥇","🥈","🥉","🏅","🎖","🎯","🎳","🎮","🎲","♟","🧩","🎭","🎨",
+        "🎬","🎤","🎧","🎼","🎹","🥁","🎷","🎺","🎸","🎻","🎪","🤹",
+    ]),
+    ("💼", "Работа", [
+        "💼","📁","📂","🗂","📋","📊","📈","📉","📝","✏️","✒️","📌","📍",
+        "📎","🖇","📐","📏","🔒","🔓","🔑","🗝","🔨","⚙️","🔧","🔩","🔗",
+        "🧰","🔬","🔭","📡","💉","💊","🩺","🛒","💡","🔦","📱","💻","🖥",
+        "🖨","⌨️","🖱","💾","💿","📀","📺","📷","📸","📹","🎥","📞","☎️",
+        "📟","📠","📧","📨","📩","📤","📥","📦","📫","📪","📬","📭","📮",
+        "🗳","✉️","📃","📄","📑","🗒","🗓","📆","📅","🗑","📇","📁","🗃",
+    ]),
+    ("🚗", "Транспорт", [
+        "🚗","🚕","🚙","🚌","🚎","🚑","🚒","🚓","🚐","🚚","🚛","🚜","🏎",
+        "🛻","🚲","🛴","🛵","🏍","🚨","🚥","🚦","🛑","⛽","🚀","✈️","🛸",
+        "🚁","🛶","⛵","🚤","🛳","⚓","🗺","🧭","🏔","⛰","🌋","🏕","🏖",
+        "🏙","🏛","🏟","🏠","🏡","🏢","🏣","🏤","🏥","🏦","🏨","🏩","🏪",
+        "🏫","🏬","🏭","🏯","🏰","💒","🗼","🗽","⛪","🕌","⛩","🕍",
+    ]),
+    ("💡", "Символы", [
+        "❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞",
+        "💓","💗","💖","💘","💝","💯","✅","❌","⭕","🛑","⛔","📛","🚫",
+        "💢","♨️","🔔","🔕","🔇","🔈","🔉","🔊","📣","📢","💬","💭","🗯",
+        "♻️","⚜️","🔰","✴️","❇️","🆗","🆙","🆒","🆕","🆓","🆖","🆘",
+        "❗","❕","❓","❔","‼️","⁉️","🔱","📛","🔅","🔆","🔱","⚛️","☮️",
+        "✝️","☪️","🕉","✡️","☯️","☦️","🛐","⛎","♈","♉","♊","♋","♌",
+        "♍","♎","♏","♐","♑","♒","♓","⭐","🌟","💥","🔥","🌈","☀️",
+    ]),
+]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EmojiGrid — custom-painted grid (fast, no per-emoji widget overhead)
+# ══════════════════════════════════════════════════════════════════════════════
+class EmojiGrid(QWidget):
+    emoji_selected = pyqtSignal(str)
+    COLS      = 8
+    CELL      = 30
+
+    def __init__(self, emojis: list, selected: str, parent=None):
+        super().__init__(parent)
+        self.emojis   = emojis
+        self.selected = selected
+        self._hover   = -1
+        rows = (len(emojis) + self.COLS - 1) // self.COLS
+        self.setFixedSize(self.COLS * self.CELL, rows * self.CELL)
+        self.setMouseTracking(True)
+
+    def _idx(self, pos) -> int:
+        col = pos.x() // self.CELL
+        row = pos.y() // self.CELL
+        idx = row * self.COLS + col
+        if 0 <= col < self.COLS and 0 <= idx < len(self.emojis):
+            return idx
+        return -1
+
+    def paintEvent(self, _):
+        p  = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cs = self.CELL
+        for i, em in enumerate(self.emojis):
+            row, col = divmod(i, self.COLS)
+            r = QRect(col * cs, row * cs, cs, cs)
+            if em == self.selected:
+                p.fillRect(r, _ac(70))
+                p.setPen(QPen(_ac(180), 1))
+                p.drawRoundedRect(r.adjusted(1,1,-1,-1), 4, 4)
+            elif i == self._hover:
+                p.fillRect(r, QColor(255, 255, 255, 18))
+            p.setFont(QFont("Segoe UI Emoji", 14))
+            p.setPen(Qt.GlobalColor.white)
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, em)
+
+    def mouseMoveEvent(self, e):
+        idx = self._idx(e.pos())
+        if idx != self._hover:
+            self._hover = idx
+            self.update()
+            self.setCursor(Qt.CursorShape.PointingHandCursor if idx >= 0
+                           else Qt.CursorShape.ArrowCursor)
+
+    def leaveEvent(self, _):
+        self._hover = -1
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            idx = self._idx(e.pos())
+            if idx >= 0:
+                self.selected = self.emojis[idx]
+                self.emoji_selected.emit(self.emojis[idx])
+                self.update()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EmojiPickerWidget — category tabs + scrollable grid
+# ══════════════════════════════════════════════════════════════════════════════
+class EmojiPickerWidget(QWidget):
+    emoji_selected = pyqtSignal(str)
+
+    def __init__(self, selected: str = "📧", parent=None):
+        super().__init__(parent)
+        self._selected  = selected
+        self._cat_idx   = 0
+        self._cat_btns  = []
+        self._build()
+
+    def get_selected(self) -> str:
+        return self._selected
+
+    def _build(self):
+        vbox = QVBoxLayout(self)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(4)
+
+        # ── Category tab bar ──────────────────────────────────────────────────
+        cat_frame = QWidget()
+        cat_frame.setStyleSheet("background:rgba(0,0,0,0.2);border-radius:8px;")
+        cat_row = QHBoxLayout(cat_frame)
+        cat_row.setContentsMargins(4, 4, 4, 4)
+        cat_row.setSpacing(2)
+
+        for i, (icon, name, _) in enumerate(EMOJI_CATEGORIES):
+            btn = QPushButton(icon)
+            btn.setFixedSize(24, 24)
+            btn.setToolTip(name)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(self._cat_style(False))
+            btn.clicked.connect(lambda _, i=i: self._show_cat(i))
+            cat_row.addWidget(btn)
+            self._cat_btns.append(btn)
+        cat_row.addStretch()
+        vbox.addWidget(cat_frame)
+
+        # ── Emoji scroll area ─────────────────────────────────────────────────
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(False)
+        self._scroll.setFixedHeight(150)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{width:4px;background:transparent;}"
+            "QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:2px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        )
+        vbox.addWidget(self._scroll)
+
+        self._show_cat(0)
+
+    @staticmethod
+    def _cat_style(active: bool) -> str:
+        if active:
+            return (f"QPushButton{{font-size:14px;background:{ACCENT}33;"
+                    f"border:1px solid {ACCENT}88;border-radius:5px;padding:0;}}")
+        return ("QPushButton{font-size:14px;background:transparent;border:none;"
+                "border-radius:5px;padding:0;}"
+                "QPushButton:hover{background:rgba(255,255,255,0.1);}")
+
+    def _show_cat(self, idx: int):
+        self._cat_idx = idx
+        for i, btn in enumerate(self._cat_btns):
+            btn.setStyleSheet(self._cat_style(i == idx))
+
+        _, _, emojis = EMOJI_CATEGORIES[idx]
+        grid = EmojiGrid(emojis, self._selected)
+        grid.emoji_selected.connect(self._on_pick)
+        self._scroll.setWidget(grid)
+
+    def _on_pick(self, emoji: str):
+        self._selected = emoji
+        self.emoji_selected.emit(emoji)
+        # refresh grid to reflect new selection highlight
+        _, _, emojis = EMOJI_CATEGORIES[self._cat_idx]
+        grid = EmojiGrid(emojis, self._selected)
+        grid.emoji_selected.connect(self._on_pick)
+        self._scroll.setWidget(grid)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CellWidget
 # ══════════════════════════════════════════════════════════════════════════════
 class CellWidget(QWidget):
-    """Single emoji cell — handles both normal (external DnD) and edit (reorder) modes."""
-    clicked     = pyqtSignal(int)   # emitted on clean click
-    drag_start  = pyqtSignal(int)   # emitted when edit-mode drag gesture detected
+    clicked    = pyqtSignal(int)
+    drag_start = pyqtSignal(int)
 
     def __init__(self, index: int, cell: dict | None, edit_mode: bool, parent=None):
         super().__init__(parent)
         self.index      = index
         self.cell       = cell
         self.edit_mode  = edit_mode
-
-        self._hovered         = False
-        self._is_placeholder  = False   # show dashed outline while being dragged
-        self._is_drop_target  = False
-        self._flash           = False
-        self._drag_start_pos  = None
-
-        self._tooltip_timer = QTimer(self)
+        self._hovered        = False
+        self._is_placeholder = False
+        self._is_drop_target = False
+        self._flash          = False
+        self._drag_start_pos = None
+        self._tooltip_timer  = QTimer(self)
         self._tooltip_timer.setSingleShot(True)
         self._tooltip_timer.timeout.connect(self._request_tooltip)
-
         self.setFixedSize(CELL_SIZE, CELL_SIZE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    # ── public helpers ────────────────────────────────────────────────────────
     def set_placeholder(self, v: bool):
         self._is_placeholder = v
         self.update()
@@ -73,15 +285,13 @@ class CellWidget(QWidget):
             if hasattr(win, "show_tooltip"):
                 win.show_tooltip(self.index, self)
 
-    # ── paint ─────────────────────────────────────────────────────────────────
     def paintEvent(self, _):
-        p = QPainter(self)
+        p    = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = self.rect()
+        r    = self.rect()
         path = QPainterPath()
         path.addRoundedRect(0, 0, r.width(), r.height(), 14, 14)
 
-        # ── empty cell ────────────────────────────────────────────────────────
         if self.cell is None:
             if self.edit_mode:
                 p.fillPath(path, QColor(255, 255, 255, 3))
@@ -95,26 +305,16 @@ class CellWidget(QWidget):
                 p.drawText(r, Qt.AlignmentFlag.AlignCenter, "+")
             return
 
-        # ── drag placeholder (origin slot while cell is flying) ───────────────
         if self._is_placeholder:
-            pen = QPen(_ac(136))
-            pen.setWidth(2)
-            pen.setStyle(Qt.PenStyle.DashLine)
+            pen = QPen(_ac(136)); pen.setWidth(2); pen.setStyle(Qt.PenStyle.DashLine)
             p.setPen(pen)
             p.fillPath(path, _ac(16))
             p.drawRoundedRect(1, 1, r.width()-2, r.height()-2, 13, 13)
             return
 
-        # ── filled cell ───────────────────────────────────────────────────────
-        if self._is_drop_target:
-            bg = _ac(55)
-        elif self._hovered:
-            bg = QColor("#3a3a56")
-        else:
-            bg = QColor(CARD)
+        bg = _ac(55) if self._is_drop_target else (QColor("#3a3a56") if self._hovered else QColor(CARD))
         p.fillPath(path, bg)
 
-        # border / flash ring
         if self._flash:
             pen = QPen(QColor(ACCENT)); pen.setWidth(2)
         elif self._is_drop_target:
@@ -123,28 +323,23 @@ class CellWidget(QWidget):
             pen = QPen(QColor(255, 255, 255, 10)); pen.setWidth(1)
         p.setPen(pen)
         p.drawRoundedRect(1, 1, r.width()-2, r.height()-2, 13, 13)
-
         p.setClipPath(path)
 
-        # drag handle (edit mode)
         if self.edit_mode:
             p.setPen(QColor(255, 255, 255, 89))
             p.setFont(QFont("Inter", 10))
             p.drawText(QRect(6, 5, 20, 14), Qt.AlignmentFlag.AlignLeft, "⠿")
 
-        # emoji  (centred in upper 60 % of cell)
-        emoji_rect = QRect(0, 6, r.width(), int(r.height() * 0.62))
         p.setFont(QFont("Segoe UI Emoji", 22))
         p.setPen(Qt.GlobalColor.white)
-        p.drawText(emoji_rect, Qt.AlignmentFlag.AlignCenter, self.cell["emoji"])
+        p.drawText(QRect(0, 6, r.width(), int(r.height()*0.62)),
+                   Qt.AlignmentFlag.AlignCenter, self.cell["emoji"])
 
-        # label  (bottom 30 %)
-        label_rect = QRect(4, int(r.height() * 0.66), r.width()-8, int(r.height() * 0.28))
         p.setFont(QFont("Inter", 9, QFont.Weight.Medium))
         p.setPen(QColor(255, 255, 255, 166))
-        p.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, self.cell["label"])
+        p.drawText(QRect(4, int(r.height()*0.66), r.width()-8, int(r.height()*0.28)),
+                   Qt.AlignmentFlag.AlignCenter, self.cell["label"])
 
-    # ── mouse events ──────────────────────────────────────────────────────────
     def enterEvent(self, _):
         self._hovered = True
         self.update()
@@ -165,29 +360,22 @@ class CellWidget(QWidget):
             self._drag_start_pos = e.pos()
 
     def mouseMoveEvent(self, e):
-        # hide tooltip on movement
         self._tooltip_timer.stop()
         win = self.window()
         if hasattr(win, "hide_tooltip"):
             win.hide_tooltip()
-
         if self._drag_start_pos is None:
             return
-        dist = (e.pos() - self._drag_start_pos).manhattanLength()
-        if dist < 8:
+        if (e.pos() - self._drag_start_pos).manhattanLength() < 8:
             return
-
         if self.edit_mode:
             if self.cell is not None:
                 self.drag_start.emit(self.index)
-                # MainWindow calls grabMouse() — no further handling needed here
             self._drag_start_pos = None
             return
-        else:
-            # external drag — copy text to any app
-            if self.cell is not None:
-                self._start_external_drag(e.pos())
-            self._drag_start_pos = None
+        if self.cell is not None:
+            self._start_external_drag(e.pos())
+        self._drag_start_pos = None
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self._drag_start_pos is not None:
@@ -197,22 +385,18 @@ class CellWidget(QWidget):
     def _start_external_drag(self, hot_spot):
         mime = QMimeData()
         mime.setText(self.cell["text"])
-
         drag = QDrag(self)
         drag.setMimeData(mime)
-
-        # render the cell as the drag pixmap
         px = QPixmap(self.size())
         px.fill(Qt.GlobalColor.transparent)
         self.render(px)
         drag.setPixmap(px)
         drag.setHotSpot(hot_spot)
-
         drag.exec(Qt.DropAction.CopyAction)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  LiftedCell  (floating drag-in-flight overlay)
+#  LiftedCell
 # ══════════════════════════════════════════════════════════════════════════════
 class LiftedCell(QWidget):
     def __init__(self, cell: dict, parent=None):
@@ -226,41 +410,31 @@ class LiftedCell(QWidget):
         p  = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r  = self.rect()
-        m  = 4                          # margin for glow halo
+        m  = 4
         iw = r.width()  - 2*m
         ih = r.height() - 2*m
         inner = QRectF(m, m, iw, ih)
         path  = QPainterPath()
         path.addRoundedRect(inner, 14, 14)
 
-        # glow halo
         for i in range(3, 0, -1):
-            glow = QPen(_ac(30 * i))
-            glow.setWidth(i * 3)
-            p.setPen(glow)
+            p.setPen(QPen(_ac(30 * i), i * 3))
             p.drawRoundedRect(inner, 14, 14)
 
-        # background
         p.fillPath(path, QColor(49, 49, 71, 220))
-
-        # accent border
         p.setPen(QPen(_ac(180), 2))
         p.drawRoundedRect(inner.adjusted(1, 1, -1, -1), 13, 13)
-
         p.setClipPath(path)
 
-        # drag handle
         p.setPen(QColor(255, 255, 255, 140))
         p.setFont(QFont("Inter", 10))
         p.drawText(QRect(m+6, m+5, 20, 14), Qt.AlignmentFlag.AlignLeft, "⠿")
 
-        # emoji
         er = QRect(m, m+6, iw, int(ih * 0.62))
         p.setFont(QFont("Segoe UI Emoji", 22))
         p.setPen(Qt.GlobalColor.white)
         p.drawText(er, Qt.AlignmentFlag.AlignCenter, self.cell["emoji"])
 
-        # label
         lr = QRect(m+4, m + int(ih*0.66), iw-8, int(ih*0.28))
         p.setFont(QFont("Inter", 9, QFont.Weight.Medium))
         p.setPen(QColor(255, 255, 255, 204))
@@ -278,43 +452,79 @@ class TooltipWidget(QWidget):
         self.setFixedSize(210, 52)
 
     def paintEvent(self, _):
-        p = QPainter(self)
+        p    = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = self.rect()
+        r    = self.rect()
         path = QPainterPath()
         path.addRoundedRect(0, 0, r.width(), r.height(), 10, 10)
-
         p.fillPath(path, QColor(20, 20, 30, 235))
         p.setPen(QPen(QColor(255, 255, 255, 15), 1))
         p.drawRoundedRect(0, 0, r.width()-1, r.height()-1, 10, 10)
         p.setClipPath(path)
 
-        header = f"{self.cell['emoji']} {self.cell['label']}"
         p.setFont(QFont("Inter", 11, QFont.Weight.DemiBold))
         p.setPen(QColor(255, 255, 255, 242))
-        p.drawText(QRect(11, 7, r.width()-22, 18), Qt.AlignmentFlag.AlignVCenter, header)
+        p.drawText(QRect(11, 7, r.width()-22, 18), Qt.AlignmentFlag.AlignVCenter,
+                   f"{self.cell['emoji']} {self.cell['label']}")
 
         preview = self.cell.get("text", "").replace("\n", " ")
         p.setFont(QFont("JetBrains Mono", 9))
         p.setPen(QColor(255, 255, 255, 158))
-        # clip text manually
         fm = p.fontMetrics()
         preview = fm.elidedText(preview, Qt.TextElideMode.ElideRight, r.width()-22)
         p.drawText(QRect(11, 28, r.width()-22, 16), Qt.AlignmentFlag.AlignVCenter, preview)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Sidebar widgets
+#  SidebarItem
 # ══════════════════════════════════════════════════════════════════════════════
 class SidebarItem(QWidget):
-    clicked = pyqtSignal(str)
+    clicked    = pyqtSignal(str)
+    move_up    = pyqtSignal(str)
+    move_down  = pyqtSignal(str)
+    edit_table = pyqtSignal(str)
 
-    def __init__(self, table: dict, active: bool = False, parent=None):
+    def __init__(self, table: dict, active: bool = False,
+                 edit_mode: bool = False, parent=None):
         super().__init__(parent)
-        self.table   = table
-        self.active  = active
-        self.setFixedSize(76, 64)
+        self.table     = table
+        self.active    = active
+        self.edit_mode = edit_mode
+        self.setFixedSize(76, 82 if edit_mode else 64)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        if edit_mode:
+            self._add_edit_controls()
+
+    def _add_edit_controls(self):
+        """Add ▲ ▼ ✎ buttons at the bottom in edit mode."""
+        btn_style = (
+            "QPushButton{font-size:10px;background:rgba(255,255,255,0.06);"
+            "border:none;border-radius:4px;color:rgba(255,255,255,0.5);padding:0;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.15);color:white;}"
+        )
+        y = 66
+
+        up = QPushButton("▲", self)
+        up.setFixedSize(20, 14)
+        up.move(7, y)
+        up.setStyleSheet(btn_style)
+        up.setCursor(Qt.CursorShape.PointingHandCursor)
+        up.clicked.connect(lambda: self.move_up.emit(self.table["id"]))
+
+        dn = QPushButton("▼", self)
+        dn.setFixedSize(20, 14)
+        dn.move(29, y)
+        dn.setStyleSheet(btn_style)
+        dn.setCursor(Qt.CursorShape.PointingHandCursor)
+        dn.clicked.connect(lambda: self.move_down.emit(self.table["id"]))
+
+        ed = QPushButton("✎", self)
+        ed.setFixedSize(16, 14)
+        ed.move(51, y)
+        ed.setStyleSheet(btn_style)
+        ed.setCursor(Qt.CursorShape.PointingHandCursor)
+        ed.clicked.connect(lambda: self.edit_table.emit(self.table["id"]))
 
     def set_active(self, v: bool):
         self.active = v
@@ -325,7 +535,6 @@ class SidebarItem(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx, cy, cr = 38, 22, 19
 
-        # active pip (left edge)
         if self.active:
             pip = QPainterPath()
             pip.addRoundedRect(2, cy-7, 3, 14, 1.5, 1.5)
@@ -333,7 +542,6 @@ class SidebarItem(QWidget):
 
         p.setOpacity(1.0 if self.active else 0.55)
 
-        # circle
         circle = QPainterPath()
         circle.addEllipse(cx-cr, cy-cr, cr*2, cr*2)
         if self.active:
@@ -341,22 +549,26 @@ class SidebarItem(QWidget):
             p.setPen(QPen(_ac(102), 1))
             p.drawEllipse(cx-cr, cy-cr, cr*2, cr*2)
 
-        # emoji
         p.setFont(QFont("Segoe UI Emoji", 16))
         p.setPen(Qt.GlobalColor.white)
-        p.drawText(QRect(cx-cr, cy-cr, cr*2, cr*2), Qt.AlignmentFlag.AlignCenter, self.table["emoji"])
+        p.drawText(QRect(cx-cr, cy-cr, cr*2, cr*2), Qt.AlignmentFlag.AlignCenter,
+                   self.table["emoji"])
 
-        # label
         p.setFont(QFont("Inter", 8, QFont.Weight.Medium))
-        color = QColor(255, 255, 255, 217 if self.active else 127)
-        p.setPen(color)
-        p.drawText(QRect(4, cy+cr+3, 68, 14), Qt.AlignmentFlag.AlignCenter, self.table["name"])
+        p.setPen(QColor(255, 255, 255, 217 if self.active else 127))
+        p.drawText(QRect(4, cy+cr+3, 68, 14), Qt.AlignmentFlag.AlignCenter,
+                   self.table["name"])
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.table["id"])
+            # only fire if not clicking the control buttons at the bottom
+            if not self.edit_mode or e.pos().y() < 62:
+                self.clicked.emit(self.table["id"])
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  AddTableButton
+# ══════════════════════════════════════════════════════════════════════════════
 class AddTableButton(QWidget):
     clicked = pyqtSignal()
 
@@ -383,7 +595,45 @@ class AddTableButton(QWidget):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  EditModal
+#  Shared modal base
+# ══════════════════════════════════════════════════════════════════════════════
+def _input_style(focus_border=True):
+    fb = f"border:1px solid {ACCENT}88;" if focus_border else ""
+    return (f"QLineEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);"
+            f"border-radius:8px;padding:0 10px;color:rgba(255,255,255,.92);font-size:12px;}}"
+            f"QLineEdit:focus{{{fb}}}")
+
+
+def _textarea_style():
+    return (f"QTextEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);"
+            f"border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.78);"
+            f"font-family:'JetBrains Mono';font-size:10px;line-height:1.45;}}"
+            f"QTextEdit:focus{{border:1px solid {ACCENT}88;}}")
+
+
+def _field_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet("color:rgba(255,255,255,.4);font-size:9px;font-weight:600;"
+                      "letter-spacing:.8px;background:transparent;border:none;")
+    return lbl
+
+
+def _modal_box(parent: QWidget, width: int = 300) -> tuple[QFrame, QVBoxLayout]:
+    box = QFrame(parent)
+    box.setFixedWidth(width)
+    box.setStyleSheet(f"QFrame{{background:{PANEL};border:1px solid rgba(255,255,255,0.07);"
+                      f"border-radius:16px;}}")
+    eff = QGraphicsDropShadowEffect()
+    eff.setBlurRadius(60); eff.setOffset(0, 20); eff.setColor(QColor(0, 0, 0, 153))
+    box.setGraphicsEffect(eff)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(16, 14, 16, 14)
+    v.setSpacing(8)
+    return box, v
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EditModal — edit / create a cell
 # ══════════════════════════════════════════════════════════════════════════════
 class EditModal(QWidget):
     saved   = pyqtSignal(dict)
@@ -392,153 +642,88 @@ class EditModal(QWidget):
 
     def __init__(self, cell: dict | None, mode: str, parent=None):
         super().__init__(parent)
-        self.mode              = mode   # 'edit' | 'new'
-        self._selected_emoji   = cell["emoji"] if cell else PICKER_EMOJI[0]
-        self._confirm_delete   = False
-        self._del_btn          = None
-
+        self.mode             = mode
+        self._confirm_delete  = False
+        self._del_btn         = None
         self.setGeometry(parent.rect() if parent else QRect(0, 0, 480, 580))
         self._build(cell)
         self.raise_()
 
-    # ── build ─────────────────────────────────────────────────────────────────
     def _build(self, cell):
-        # modal box — fixed width, auto height
-        box = QFrame(self)
-        box.setFixedWidth(300)
-        box.setStyleSheet(f"""
-            QFrame {{
-                background: {PANEL};
-                border: 1px solid rgba(255,255,255,0.07);
-                border-radius: 16px;
-            }}
-        """)
-        eff = QGraphicsDropShadowEffect()
-        eff.setBlurRadius(60)
-        eff.setOffset(0, 20)
-        eff.setColor(QColor(0, 0, 0, 153))
-        box.setGraphicsEffect(eff)
-
-        v = QVBoxLayout(box)
-        v.setContentsMargins(16, 14, 16, 14)
-        v.setSpacing(8)
+        box, v = _modal_box(self)
 
         # header
         hdr = QLabel("EDIT CELL")
-        hdr.setStyleSheet("color:rgba(255,255,255,.5);font-size:11px;font-weight:600;letter-spacing:1.2px;background:transparent;border:none;")
+        hdr.setStyleSheet("color:rgba(255,255,255,.5);font-size:11px;font-weight:600;"
+                          "letter-spacing:1.2px;background:transparent;border:none;")
         v.addWidget(hdr)
 
-        # emoji picker row
-        picker = QFrame()
-        picker.setStyleSheet("background:rgba(0,0,0,56);border-radius:10px;border:none;")
-        ph = QHBoxLayout(picker)
-        ph.setContentsMargins(8, 6, 8, 6)
-        ph.setSpacing(4)
+        # emoji picker
+        self._picker = EmojiPickerWidget(cell["emoji"] if cell else "📧")
+        v.addWidget(self._picker)
 
-        self._sel_lbl = QLabel(self._selected_emoji)
-        self._sel_lbl.setStyleSheet("font-size:24px;padding:0 4px;background:transparent;border:none;")
-        ph.addWidget(self._sel_lbl)
+        # selected emoji display
+        row_em = QHBoxLayout()
+        self._sel_lbl = QLabel(self._picker.get_selected())
+        self._sel_lbl.setStyleSheet("font-size:22px;background:transparent;border:none;")
+        row_em.addWidget(QLabel("Выбрано:"))
+        row_em.addWidget(self._sel_lbl)
+        row_em.addStretch()
+        row_em.itemAt(0).widget().setStyleSheet(
+            "color:rgba(255,255,255,.4);font-size:9px;font-weight:600;"
+            "letter-spacing:.8px;background:transparent;border:none;")
+        v.addLayout(row_em)
+        self._picker.emoji_selected.connect(lambda e: self._sel_lbl.setText(e))
 
-        div = QFrame()
-        div.setFixedSize(1, 22)
-        div.setStyleSheet("background:rgba(255,255,255,.08);border:none;")
-        ph.addWidget(div)
+        # label
+        v.addWidget(_field_label("LABEL"))
+        self._lbl = QLineEdit(cell["label"] if cell else "")
+        self._lbl.setFixedHeight(32)
+        self._lbl.setStyleSheet(_input_style())
+        v.addWidget(self._lbl)
 
-        others = [e for e in PICKER_EMOJI if e != self._selected_emoji][:8]
-        for em in others:
-            btn = QPushButton(em)
-            btn.setFixedSize(28, 28)
-            btn.setStyleSheet("font-size:13px;background:transparent;border:none;border-radius:6px;padding:0;")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _, e=em: self._pick(e))
-            ph.addWidget(btn)
-        ph.addStretch()
-        v.addWidget(picker)
+        # content
+        v.addWidget(_field_label("CONTENT"))
+        self._txt = QTextEdit(cell["text"] if cell else "")
+        self._txt.setFixedHeight(62)
+        self._txt.setStyleSheet(_textarea_style())
+        v.addWidget(self._txt)
 
-        # label field
-        v.addWidget(self._field_label("LABEL"))
-        self._lbl_input = QLineEdit(cell["label"] if cell else "")
-        self._lbl_input.setFixedHeight(32)
-        self._lbl_input.setStyleSheet(self._input_style())
-        v.addWidget(self._lbl_input)
-
-        # content field
-        v.addWidget(self._field_label("CONTENT"))
-        self._txt_input = QTextEdit(cell["text"] if cell else "")
-        self._txt_input.setFixedHeight(62)
-        self._txt_input.setStyleSheet(self._textarea_style())
-        v.addWidget(self._txt_input)
-
-        # button row
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        # buttons
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
         if self.mode == "edit":
             self._del_btn = QPushButton("Delete")
             self._del_btn.setFixedHeight(30)
-            self._del_btn.setStyleSheet("""
-                QPushButton{padding:0 14px;border-radius:8px;border:1px solid rgba(255,80,80,.3);
-                            background:rgba(255,80,80,.08);color:#ff7a7a;font-size:11px;font-weight:600;}
-                QPushButton:hover{background:rgba(255,80,80,.15);}
-            """)
+            self._del_btn.setStyleSheet(
+                "QPushButton{padding:0 14px;border-radius:8px;"
+                "border:1px solid rgba(255,80,80,.3);background:rgba(255,80,80,.08);"
+                "color:#ff7a7a;font-size:11px;font-weight:600;}"
+                "QPushButton:hover{background:rgba(255,80,80,.15);}")
             self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._del_btn.clicked.connect(self._on_delete)
-            row.addWidget(self._del_btn)
-        row.addStretch()
+            btn_row.addWidget(self._del_btn)
+        btn_row.addStretch()
         save = QPushButton("Save")
         save.setFixedHeight(30)
-        save.setStyleSheet(f"""
-            QPushButton{{padding:0 16px;border-radius:8px;border:none;
-                         background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}cc);
-                         color:white;font-size:11px;font-weight:600;}}
-            QPushButton:hover{{opacity:.9;}}
-        """)
+        save.setStyleSheet(
+            f"QPushButton{{padding:0 16px;border-radius:8px;border:none;"
+            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}cc);"
+            f"color:white;font-size:11px;font-weight:600;}}")
         save.setCursor(Qt.CursorShape.PointingHandCursor)
         save.clicked.connect(self._on_save)
-        row.addWidget(save)
-        v.addLayout(row)
+        btn_row.addWidget(save)
+        v.addLayout(btn_row)
 
-        # size and centre
         box.adjustSize()
-        pw, ph2 = self.width(), self.height()
-        box.move((pw - box.width()) // 2, (ph2 - box.height()) // 2)
-
-        self._lbl_input.setFocus()
-
-    # ── helpers ───────────────────────────────────────────────────────────────
-    @staticmethod
-    def _field_label(text):
-        lbl = QLabel(text)
-        lbl.setStyleSheet("color:rgba(255,255,255,.4);font-size:9px;font-weight:600;"
-                          "letter-spacing:.8px;background:transparent;border:none;")
-        return lbl
-
-    @staticmethod
-    def _input_style():
-        return f"""
-            QLineEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);
-                       border-radius:8px;padding:0 10px;color:rgba(255,255,255,.92);font-size:12px;}}
-            QLineEdit:focus{{border:1px solid {ACCENT}88;}}
-        """
-
-    @staticmethod
-    def _textarea_style():
-        return f"""
-            QTextEdit{{background:rgba(0,0,0,71);border:1px solid rgba(255,255,255,.06);
-                       border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.78);
-                       font-family:'JetBrains Mono';font-size:10px;line-height:1.45;}}
-            QTextEdit:focus{{border:1px solid {ACCENT}88;}}
-        """
-
-    # ── slots ─────────────────────────────────────────────────────────────────
-    def _pick(self, emoji):
-        self._selected_emoji = emoji
-        self._sel_lbl.setText(emoji)
+        pw, ph = self.width(), self.height()
+        box.move((pw - box.width()) // 2, max(10, (ph - box.height()) // 2))
+        self._lbl.setFocus()
 
     def _on_save(self):
-        label = self._lbl_input.text().strip()
-        text  = self._txt_input.toPlainText().strip()
+        label = self._lbl.text().strip()
+        text  = self._txt.toPlainText().strip()
         if label and text:
-            self.saved.emit({"emoji": self._selected_emoji, "label": label, "text": text})
+            self.saved.emit({"emoji": self._picker.get_selected(), "label": label, "text": text})
 
     def _on_delete(self):
         if self._confirm_delete:
@@ -552,6 +737,112 @@ class EditModal(QWidget):
         self._confirm_delete = False
         if self._del_btn:
             self._del_btn.setText("Delete")
+
+    def mousePressEvent(self, e):
+        box = self.findChild(QFrame)
+        if box and not box.geometry().contains(e.pos()):
+            self.closed.emit()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key.Key_Escape:
+            self.closed.emit()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(10, 10, 16, 140))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EditTableModal — edit table name / emoji
+# ══════════════════════════════════════════════════════════════════════════════
+class EditTableModal(QWidget):
+    saved   = pyqtSignal(dict)   # {"emoji": ..., "name": ...}
+    deleted = pyqtSignal()
+    closed  = pyqtSignal()
+
+    def __init__(self, table: dict, can_delete: bool, parent=None):
+        super().__init__(parent)
+        self._confirm_delete = False
+        self._del_btn        = None
+        self.setGeometry(parent.rect() if parent else QRect(0, 0, 480, 580))
+        self._build(table, can_delete)
+        self.raise_()
+
+    def _build(self, table, can_delete):
+        box, v = _modal_box(self)
+
+        hdr = QLabel("EDIT TABLE")
+        hdr.setStyleSheet("color:rgba(255,255,255,.5);font-size:11px;font-weight:600;"
+                          "letter-spacing:1.2px;background:transparent;border:none;")
+        v.addWidget(hdr)
+
+        self._picker = EmojiPickerWidget(table["emoji"])
+        v.addWidget(self._picker)
+
+        row_em = QHBoxLayout()
+        self._sel_lbl = QLabel(table["emoji"])
+        self._sel_lbl.setStyleSheet("font-size:22px;background:transparent;border:none;")
+        lbl_sel = QLabel("Выбрано:")
+        lbl_sel.setStyleSheet("color:rgba(255,255,255,.4);font-size:9px;font-weight:600;"
+                              "letter-spacing:.8px;background:transparent;border:none;")
+        row_em.addWidget(lbl_sel)
+        row_em.addWidget(self._sel_lbl)
+        row_em.addStretch()
+        v.addLayout(row_em)
+        self._picker.emoji_selected.connect(lambda e: self._sel_lbl.setText(e))
+
+        v.addWidget(_field_label("НАЗВАНИЕ"))
+        self._name = QLineEdit(table["name"])
+        self._name.setFixedHeight(32)
+        self._name.setStyleSheet(_input_style())
+        v.addWidget(self._name)
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        if can_delete:
+            self._del_btn = QPushButton("Удалить")
+            self._del_btn.setFixedHeight(30)
+            self._del_btn.setStyleSheet(
+                "QPushButton{padding:0 14px;border-radius:8px;"
+                "border:1px solid rgba(255,80,80,.3);background:rgba(255,80,80,.08);"
+                "color:#ff7a7a;font-size:11px;font-weight:600;}"
+                "QPushButton:hover{background:rgba(255,80,80,.15);}")
+            self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._del_btn.clicked.connect(self._on_delete)
+            btn_row.addWidget(self._del_btn)
+        btn_row.addStretch()
+        save = QPushButton("Сохранить")
+        save.setFixedHeight(30)
+        save.setStyleSheet(
+            f"QPushButton{{padding:0 16px;border-radius:8px;border:none;"
+            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 {ACCENT},stop:1 {ACCENT}cc);"
+            f"color:white;font-size:11px;font-weight:600;}}")
+        save.setCursor(Qt.CursorShape.PointingHandCursor)
+        save.clicked.connect(self._on_save)
+        btn_row.addWidget(save)
+        v.addLayout(btn_row)
+
+        box.adjustSize()
+        pw, ph = self.width(), self.height()
+        box.move((pw - box.width()) // 2, max(10, (ph - box.height()) // 2))
+        self._name.setFocus()
+
+    def _on_save(self):
+        name = self._name.text().strip()
+        if name:
+            self.saved.emit({"emoji": self._picker.get_selected(), "name": name})
+
+    def _on_delete(self):
+        if self._confirm_delete:
+            self.deleted.emit()
+        else:
+            self._confirm_delete = True
+            self._del_btn.setText("Точно?")
+            QTimer.singleShot(2000, self._reset_delete)
+
+    def _reset_delete(self):
+        self._confirm_delete = False
+        if self._del_btn:
+            self._del_btn.setText("Удалить")
 
     def mousePressEvent(self, e):
         box = self.findChild(QFrame)
