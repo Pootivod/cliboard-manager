@@ -3,13 +3,13 @@ Clipboard Manager — MainWindow
 """
 import uuid
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QApplication
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QApplication, QScrollArea
 from PyQt6.QtCore    import Qt, QTimer, QPoint
 from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
 
 from cm_constants import (
     WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
-    GRID_ROWS, CELL_SIZE, GRID_GAP, ACCENT, BG, SUCCESS,
+    GRID_ROWS, CELL_SIZE, GRID_GAP, GRID_PAD_B, ACCENT, BG, SUCCESS,
     grid_metrics, load_state, save_state,
 )
 
@@ -75,13 +75,26 @@ class MainWindow(QWidget):
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(0)
 
-        # grid area — plain QWidget, cells positioned manually (no layout)
-        # initial size uses 4-col default; _apply_cols() resizes it dynamically
-        _default_grid_w = 2*12 + 4*CELL_SIZE + 3*9   # matches WIN_W default
+        # grid area — QScrollArea wraps a plain QWidget with manually-positioned cells
+        _default_grid_w, _, _, _ = grid_metrics(4, CELL_SIZE)
+        self._grid_scroll = QScrollArea()
+        self._grid_scroll.setFixedSize(_default_grid_w, _GRID_HOST_H)
+        self._grid_scroll.setWidgetResizable(False)
+        self._grid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._grid_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._grid_scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{width:4px;background:transparent;margin:0;}"
+            "QScrollBar::handle:vertical{background:rgba(255,255,255,0.18);"
+            "border-radius:2px;min-height:20px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:none;}"
+        )
         self._grid_host = QWidget()
-        self._grid_host.setFixedSize(_default_grid_w, WIN_H - TOOLBAR_H - STATUSBAR_H)
+        self._grid_host.setFixedSize(_default_grid_w, _GRID_HOST_H)
         self._grid_host.setStyleSheet("background:transparent;")
-        bl.addWidget(self._grid_host)
+        self._grid_scroll.setWidget(self._grid_host)
+        bl.addWidget(self._grid_scroll)
 
         # sidebar — uses a VBoxLayout (vertical list only, no layout conflict)
         self._sidebar_host = QWidget()
@@ -221,7 +234,8 @@ class MainWindow(QWidget):
         if win_w != self.width():
             self.setFixedSize(win_w, WIN_H)
             self._canvas.setGeometry(0, 0, win_w, WIN_H)
-            self._grid_host.setFixedWidth(grid_w)
+            self._grid_scroll.setFixedWidth(grid_w)
+        self._grid_host.setFixedWidth(grid_w)
 
     def _refresh_grid(self):
         table = self._active()
@@ -264,19 +278,27 @@ class MainWindow(QWidget):
 
         # Ghost row: in edit mode, always show one empty row after the last
         # row with any cell so the user can expand the table.
+        # No height check needed — QScrollArea handles overflow.
         if self._edit_mode and last_occupied_row >= 0:
-            ghost_row = last_occupied_row + 1
-            ghost_y   = self._cell_y[0] + ghost_row * (self._cell_size + GRID_GAP)
-            if ghost_y + self._cell_size <= _GRID_HOST_H:
-                ghost_base = ghost_row * self._cols
-                for col in range(self._cols):
-                    ghost_idx = ghost_base + col
-                    w = CellWidget(ghost_idx, None, True, self._grid_host,
-                                   cell_size=self._cell_size)
-                    w.move(self._cell_x[col], ghost_y)
-                    w.show()
-                    w.clicked.connect(self._expand_clicked)
-                    self._ghost_widgets.append(w)
+            ghost_row  = last_occupied_row + 1
+            ghost_y    = self._cell_y[0] + ghost_row * (self._cell_size + GRID_GAP)
+            ghost_base = ghost_row * self._cols
+            for col in range(self._cols):
+                ghost_idx = ghost_base + col
+                w = CellWidget(ghost_idx, None, True, self._grid_host,
+                               cell_size=self._cell_size)
+                w.move(self._cell_x[col], ghost_y)
+                w.show()
+                w.clicked.connect(self._expand_clicked)
+                self._ghost_widgets.append(w)
+
+        # Resize grid_host to fit all content so QScrollArea can scroll.
+        all_w = self._cell_widgets + self._ghost_widgets
+        if all_w:
+            content_h = max(w.y() + w.height() for w in all_w) + GRID_PAD_B
+        else:
+            content_h = _GRID_HOST_H
+        self._grid_host.setFixedHeight(max(content_h, _GRID_HOST_H))
 
     def _refresh_sidebar(self):
         lo = self._sidebar_vbox
