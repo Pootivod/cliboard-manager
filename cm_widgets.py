@@ -490,14 +490,19 @@ class SidebarItem(QWidget):
     def __init__(self, table: dict, active: bool = False,
                  edit_mode: bool = False, parent=None):
         super().__init__(parent)
-        self.table     = table
-        self.active    = active
-        self.edit_mode = edit_mode
+        self.table          = table
+        self.active         = active
+        self.edit_mode      = edit_mode
+        self._is_drop_target = False
         self.setFixedSize(76, 82 if edit_mode else 64)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         if edit_mode:
             self._add_edit_controls()
+
+    def set_drop_target(self, v: bool):
+        self._is_drop_target = v
+        self.update()
 
     def _add_edit_controls(self):
         """Add ▲ ▼ ✎ buttons at the bottom in edit mode."""
@@ -537,6 +542,12 @@ class SidebarItem(QWidget):
         p  = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx, cy, cr = 38, 22, 19
+
+        if self._is_drop_target:
+            ring = QPainterPath()
+            ring.addEllipse(cx-cr-3, cy-cr-3, (cr+3)*2, (cr+3)*2)
+            p.setPen(QPen(QColor(SUCCESS), 2))
+            p.drawEllipse(cx-cr-3, cy-cr-3, (cr+3)*2, (cr+3)*2)
 
         if self.active:
             pip = QPainterPath()
@@ -817,6 +828,23 @@ class EditTableModal(QWidget):
         cols_row.addStretch()
         v.addLayout(cols_row)
 
+        # ── Cell size selector ────────────────────────────────────────────────
+        v.addWidget(_field_label("РАЗМЕР КЛЕТКИ (px)"))
+        self._selected_size = table.get("cell_size", 88)
+        self._size_btns: list[tuple[int, QPushButton]] = []
+        size_row = QHBoxLayout()
+        size_row.setSpacing(6)
+        for px in (64, 80, 88, 112):
+            btn = QPushButton(str(px))
+            btn.setFixedSize(42, 28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(self._cols_btn_style(px == self._selected_size))
+            btn.clicked.connect(lambda _, s=px: self._select_size(s))
+            size_row.addWidget(btn)
+            self._size_btns.append((px, btn))
+        size_row.addStretch()
+        v.addLayout(size_row)
+
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
         if can_delete:
             self._del_btn = QPushButton("Удалить")
@@ -862,13 +890,19 @@ class EditTableModal(QWidget):
         for nb, btn in self._cols_btns:
             btn.setStyleSheet(self._cols_btn_style(nb == n))
 
+    def _select_size(self, px: int):
+        self._selected_size = px
+        for sp, btn in self._size_btns:
+            btn.setStyleSheet(self._cols_btn_style(sp == px))
+
     def _on_save(self):
         name = self._name.text().strip()
         if name:
             self.saved.emit({
-                "emoji": self._picker.get_selected(),
-                "name": name,
-                "cols": self._selected_cols,
+                "emoji":     self._picker.get_selected(),
+                "name":      name,
+                "cols":      self._selected_cols,
+                "cell_size": self._selected_size,
             })
 
     def _on_delete(self):

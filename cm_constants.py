@@ -39,13 +39,13 @@ GRID_SLOTS  = 12                         # default (GRID_COLS * GRID_ROWS)
 CELL_SIZE   = (GRID_W - 2*GRID_PAD_H - (GRID_COLS-1)*GRID_GAP) // GRID_COLS  # 88 px
 
 
-def grid_metrics(cols: int) -> tuple:
-    """Return (grid_w, win_w, cell_x_list, cell_y_list) for the given column count.
-    Cell size stays fixed; the window width grows/shrinks with column count."""
-    grid_w = 2*GRID_PAD_H + cols*CELL_SIZE + (cols - 1)*GRID_GAP
+def grid_metrics(cols: int, cell_size: int = CELL_SIZE) -> tuple:
+    """Return (grid_w, win_w, cell_x_list, cell_y_list).
+    Window width grows/shrinks with column count and cell size."""
+    grid_w = 2*GRID_PAD_H + cols*cell_size + (cols - 1)*GRID_GAP
     win_w  = SIDEBAR_W + grid_w
-    cell_x = [GRID_PAD_H + c * (CELL_SIZE + GRID_GAP) for c in range(cols)]
-    cell_y = [GRID_PAD_T + r * (CELL_SIZE + GRID_GAP) for r in range(GRID_ROWS)]
+    cell_x = [GRID_PAD_H + c * (cell_size + GRID_GAP) for c in range(cols)]
+    cell_y = [GRID_PAD_T + r * (cell_size + GRID_GAP) for r in range(GRID_ROWS)]
     return grid_w, win_w, cell_x, cell_y
 
 # ── Design tokens (Indigo Dusk) ────────────────────────────────────────────────
@@ -62,7 +62,7 @@ PICKER_EMOJI = ["📧","🏢","📞","📍","🔗","🔑","💳","📝","⚡","�
 # ── First-launch default — one table, one example cell ────────────────────────
 DEFAULT_TABLES = [
     {
-        "id": "main", "emoji": "📋", "name": "Главная", "cols": 4,
+        "id": "main", "emoji": "📋", "name": "Главная", "cols": 4, "cell_size": 88,
         "cells": [
             {
                 "emoji": "📖",

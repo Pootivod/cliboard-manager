@@ -35,8 +35,10 @@ class MainWindow(QWidget):
         self._tooltip          = None
         self._modal            = None
         self._toolbar_drag_pos = None
-        self._cell_widgets:  list[CellWidget] = []
-        self._ghost_widgets: list[CellWidget] = []
+        self._cell_widgets:   list[CellWidget] = []
+        self._ghost_widgets:  list[CellWidget] = []
+        self._sidebar_items:  list             = []
+        self._drag_table_target: str | None    = None
         # updated by _refresh_grid to reflect active table's column count
         self._cols      = 4
         self._cell_size = 88
@@ -209,11 +211,11 @@ class MainWindow(QWidget):
                 "color:rgba(255,255,255,153);"
             )
 
-    def _apply_cols(self, cols: int):
-        """Resize window/grid to fit col count; update cached metrics."""
-        grid_w, win_w, cell_x, cell_y = grid_metrics(cols)
+    def _apply_grid_config(self, cols: int, cell_size: int):
+        """Resize window and grid for the given column count and cell size."""
+        grid_w, win_w, cell_x, cell_y = grid_metrics(cols, cell_size)
         self._cols      = cols
-        self._cell_size = CELL_SIZE
+        self._cell_size = cell_size
         self._cell_x    = cell_x
         self._cell_y    = cell_y
         if win_w != self.width():
@@ -223,7 +225,7 @@ class MainWindow(QWidget):
 
     def _refresh_grid(self):
         table = self._active()
-        self._apply_cols(table.get("cols", 4))
+        self._apply_grid_config(table.get("cols", 4), table.get("cell_size", CELL_SIZE))
 
         for w in self._cell_widgets + self._ghost_widgets:
             w.setParent(None)
@@ -236,7 +238,7 @@ class MainWindow(QWidget):
             x = self._cell_x[col]
             y = self._cell_y[0] + row * (CELL_SIZE + GRID_GAP)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host,
-                           cell_size=CELL_SIZE)
+                           cell_size=self._cell_size)
             w.move(x, y)
             w.show()
             w.clicked.connect(self._cell_clicked)
@@ -249,8 +251,8 @@ class MainWindow(QWidget):
             actual_rows   = len(cells) // self._cols
             last_row_start = (actual_rows - 1) * self._cols
             if any(cells[last_row_start:]):
-                ghost_y = self._cell_y[0] + actual_rows * (CELL_SIZE + GRID_GAP)
-                if ghost_y + CELL_SIZE <= _GRID_HOST_H:
+                ghost_y = self._cell_y[0] + actual_rows * (self._cell_size + GRID_GAP)
+                if ghost_y + self._cell_size <= _GRID_HOST_H:
                     ghost_base = len(cells)
                     for col in range(self._cols):
                         ghost_idx = ghost_base + col
@@ -267,6 +269,7 @@ class MainWindow(QWidget):
             item = lo.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
+        self._sidebar_items = []
 
         for t in self._tables:
             si = SidebarItem(t, t["id"] == self._active_id, self._edit_mode)
@@ -275,6 +278,7 @@ class MainWindow(QWidget):
             si.move_down.connect(self._table_move_down)
             si.edit_table.connect(self._open_table_modal)
             lo.addWidget(si)
+            self._sidebar_items.append(si)
 
         lo.addStretch()
 
@@ -306,10 +310,22 @@ class MainWindow(QWidget):
 
     # ── actions ────────────────────────────────────────────────────────────────
     def _toggle_edit(self):
+        if self._edit_mode:
+            self._trim_trailing_rows()
         self._edit_mode = not self._edit_mode
         self.hide_tooltip()
         self._close_modal()
         self._refresh()
+
+    def _trim_trailing_rows(self):
+        """Remove all-None rows from the bottom; keep at least one row."""
+        cells = self._active()["cells"]
+        while len(cells) > self._cols:
+            if all(c is None for c in cells[-self._cols:]):
+                del cells[-self._cols:]
+            else:
+                break
+        save_state(self._tables, self._active_id)
 
     def _switch_table(self, tid):
         self._active_id = tid
@@ -321,7 +337,8 @@ class MainWindow(QWidget):
     def _add_table(self):
         tid = str(uuid.uuid4())[:8]
         self._tables.append({
-            "id": tid, "emoji": "📂", "name": "New", "cols": 4, "cells": [None]*12
+            "id": tid, "emoji": "📂", "name": "New",
+            "cols": 4, "cell_size": CELL_SIZE, "cells": [None]*12
         })
         self._active_id = tid
         self._refresh()
@@ -409,14 +426,13 @@ class MainWindow(QWidget):
     def _table_save(self, tid, data):
         for t in self._tables:
             if t["id"] == tid:
-                t["emoji"] = data["emoji"]
-                t["name"]  = data["name"]
-                new_cols   = data.get("cols", t.get("cols", 4))
+                t["emoji"]     = data["emoji"]
+                t["name"]      = data["name"]
+                t["cell_size"] = data.get("cell_size", t.get("cell_size", CELL_SIZE))
+                new_cols = data.get("cols", t.get("cols", 4))
                 if new_cols != t.get("cols", 4):
                     new_slots = new_cols * GRID_ROWS
-                    old_cells = t["cells"]
-                    # resize: keep existing cells, pad or trim
-                    t["cells"] = (old_cells + [None] * new_slots)[:new_slots]
+                    t["cells"] = (t["cells"] + [None] * new_slots)[:new_slots]
                 t["cols"] = new_cols
                 break
         self._close_modal()
@@ -436,8 +452,9 @@ class MainWindow(QWidget):
         cell = self._active()["cells"][from_idx]
         if cell is None:
             return
-        self._drag_idx  = from_idx
-        self._drag_over = None
+        self._drag_idx          = from_idx
+        self._drag_over         = None
+        self._drag_table_target = None
 
         if from_idx < len(self._cell_widgets):
             self._cell_widgets[from_idx].set_placeholder(True)
@@ -445,7 +462,7 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.hide()
             self._lifted.deleteLater()
-        self._lifted = LiftedCell(cell, self._canvas)
+        self._lifted = LiftedCell(cell, self._canvas, cell_size=self._cell_size)
         cp   = self._canvas.mapFromGlobal(QCursor.pos())
         half = self._lifted.width() // 2
         self._lifted.move(cp.x() - half, cp.y() - half)
@@ -465,18 +482,38 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.move(pos.x() - half, pos.y() - half)
 
-        # Detect drop target by mapping cursor into grid_host coordinates
+        # ── Detect sidebar (cross-table) target ───────────────────────────────
+        new_table = None
+        for si in self._sidebar_items:
+            local = si.mapFromGlobal(QCursor.pos())
+            if si.rect().contains(local) and si.table["id"] != self._active_id:
+                new_table = si.table["id"]
+                break
+
+        if new_table != self._drag_table_target:
+            if self._drag_table_target:
+                for si in self._sidebar_items:
+                    if si.table["id"] == self._drag_table_target:
+                        si.set_drop_target(False)
+            self._drag_table_target = new_table
+            if new_table:
+                for si in self._sidebar_items:
+                    if si.table["id"] == new_table:
+                        si.set_drop_target(True)
+
+        # ── Detect in-grid drop target (only when not over sidebar) ───────────
         gp       = self._grid_host.mapFrom(self, pos)
         new_over = None
-        for i, w in enumerate(self._cell_widgets):
-            if i == self._drag_idx:
-                continue
-            row_i = i // self._cols
-            local = QPoint(gp.x() - self._cell_x[i % self._cols],
-                           gp.y() - (self._cell_y[0] + row_i * (CELL_SIZE + GRID_GAP)))
-            if 0 <= local.x() < self._cell_size and 0 <= local.y() < self._cell_size:
-                new_over = i
-                break
+        if new_table is None:
+            for i, w in enumerate(self._cell_widgets):
+                if i == self._drag_idx:
+                    continue
+                row_i = i // self._cols
+                local = QPoint(gp.x() - self._cell_x[i % self._cols],
+                               gp.y() - (self._cell_y[0] + row_i * (self._cell_size + GRID_GAP)))
+                if 0 <= local.x() < self._cell_size and 0 <= local.y() < self._cell_size:
+                    new_over = i
+                    break
 
         if new_over != self._drag_over:
             if self._drag_over is not None and self._drag_over < len(self._cell_widgets):
@@ -490,7 +527,22 @@ class MainWindow(QWidget):
             return
         self.releaseMouse()
 
-        if self._drag_over is not None:
+        if self._drag_table_target:
+            # ── Cross-table move ──────────────────────────────────────────────
+            src_cell = self._active()["cells"][self._drag_idx]
+            if src_cell is not None:
+                target = next(t for t in self._tables
+                              if t["id"] == self._drag_table_target)
+                self._active()["cells"][self._drag_idx] = None
+                if None in target["cells"]:
+                    target["cells"][target["cells"].index(None)] = src_cell
+                else:
+                    target["cells"].append(src_cell)
+                save_state(self._tables, self._active_id)
+            for si in self._sidebar_items:
+                si.set_drop_target(False)
+        elif self._drag_over is not None:
+            # ── In-table swap ─────────────────────────────────────────────────
             cells = self._active()["cells"]
             cells[self._drag_idx], cells[self._drag_over] = (
                 cells[self._drag_over], cells[self._drag_idx]
@@ -502,8 +554,9 @@ class MainWindow(QWidget):
             self._lifted.deleteLater()
             self._lifted = None
 
-        self._drag_idx  = None
-        self._drag_over = None
+        self._drag_idx          = None
+        self._drag_over         = None
+        self._drag_table_target = None
         self._refresh()
 
     # ── tooltip ────────────────────────────────────────────────────────────────
