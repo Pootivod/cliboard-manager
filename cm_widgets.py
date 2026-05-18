@@ -232,11 +232,13 @@ class EmojiPickerWidget(QWidget):
     def _on_pick(self, emoji: str):
         self._selected = emoji
         self.emoji_selected.emit(emoji)
-        # refresh grid to reflect new selection highlight
         _, _, emojis = EMOJI_CATEGORIES[self._cat_idx]
         grid = EmojiGrid(emojis, self._selected)
         grid.emoji_selected.connect(self._on_pick)
-        self._scroll.setWidget(grid)
+        # Defer setWidget so the caller's mouseReleaseEvent finishes first.
+        # setWidget deletes the old grid immediately; calling self.update()
+        # on a deleted C++ object raises RuntimeError.
+        QTimer.singleShot(0, lambda g=grid: self._scroll.setWidget(g))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

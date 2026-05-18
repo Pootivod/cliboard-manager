@@ -9,9 +9,11 @@ from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
 
 from cm_constants import (
     WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
-    GRID_ROWS, CELL_SIZE, ACCENT, BG, SUCCESS,
+    GRID_ROWS, CELL_SIZE, GRID_GAP, ACCENT, BG, SUCCESS,
     grid_metrics, load_state, save_state,
 )
+
+_GRID_HOST_H = WIN_H - TOOLBAR_H - STATUSBAR_H
 from cm_widgets import (
     CellWidget, LiftedCell, TooltipWidget,
     SidebarItem, AddTableButton, EditModal, EditTableModal,
@@ -33,7 +35,8 @@ class MainWindow(QWidget):
         self._tooltip          = None
         self._modal            = None
         self._toolbar_drag_pos = None
-        self._cell_widgets: list[CellWidget] = []
+        self._cell_widgets:  list[CellWidget] = []
+        self._ghost_widgets: list[CellWidget] = []
         # updated by _refresh_grid to reflect active table's column count
         self._cols      = 4
         self._cell_size = 88
@@ -222,13 +225,13 @@ class MainWindow(QWidget):
         table = self._active()
         self._apply_cols(table.get("cols", 4))
 
-        # Destroy old cell widgets immediately (setParent removes from display)
-        for w in self._cell_widgets:
+        for w in self._cell_widgets + self._ghost_widgets:
             w.setParent(None)
-        self._cell_widgets = []
+        self._cell_widgets  = []
+        self._ghost_widgets = []
 
-        # Manually position each cell — guarantees pixel-perfect equal gaps
-        for i, cell in enumerate(table["cells"]):
+        cells = table["cells"]
+        for i, cell in enumerate(cells):
             row, col = divmod(i, self._cols)
             w = CellWidget(i, cell, self._edit_mode, self._grid_host,
                            cell_size=CELL_SIZE)
@@ -237,6 +240,24 @@ class MainWindow(QWidget):
             w.clicked.connect(self._cell_clicked)
             w.drag_start.connect(self._drag_start)
             self._cell_widgets.append(w)
+
+        # Ghost row: in edit mode, if any cell in the last row is filled,
+        # show a dashed-plus row below to allow adding more cells.
+        if self._edit_mode:
+            actual_rows   = len(cells) // self._cols
+            last_row_start = (actual_rows - 1) * self._cols
+            if any(cells[last_row_start:]):
+                ghost_y = self._cell_y[0] + actual_rows * (CELL_SIZE + GRID_GAP)
+                if ghost_y + CELL_SIZE <= _GRID_HOST_H:
+                    ghost_base = len(cells)
+                    for col in range(self._cols):
+                        ghost_idx = ghost_base + col
+                        w = CellWidget(ghost_idx, None, True, self._grid_host,
+                                       cell_size=CELL_SIZE)
+                        w.move(self._cell_x[col], ghost_y)
+                        w.show()
+                        w.clicked.connect(self._expand_clicked)
+                        self._ghost_widgets.append(w)
 
     def _refresh_sidebar(self):
         lo = self._sidebar_vbox
@@ -345,6 +366,14 @@ class MainWindow(QWidget):
         self._close_modal()
         self._refresh()
         save_state(self._tables, self._active_id)
+
+    def _expand_clicked(self, ghost_idx):
+        """Extend the cells array by one row and open a new-cell modal."""
+        cells = self._active()["cells"]
+        cells.extend([None] * self._cols)
+        save_state(self._tables, self._active_id)
+        self._refresh_grid()
+        self._open_modal(ghost_idx, None, "new")
 
     # ── table edit / reorder ───────────────────────────────────────────────────
     def _table_move_up(self, tid):
