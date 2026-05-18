@@ -178,10 +178,11 @@ class CellWidget(QWidget):
             return
 
         if self.edit_mode:
-            # tell MainWindow to start internal reorder
             if self.cell is not None:
                 self.drag_start.emit(self.index)
+                # MainWindow calls grabMouse() — no further handling needed here
             self._drag_start_pos = None
+            return
         else:
             # external drag — copy text to any app
             if self.cell is not None:

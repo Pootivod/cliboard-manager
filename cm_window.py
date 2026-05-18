@@ -330,9 +330,10 @@ class MainWindow(QWidget):
         self._lifted.show()
         self._lifted.raise_()
 
-        self.setMouseTracking(True)
-        self._canvas.setMouseTracking(True)
-        self._grid_host.setMouseTracking(True)
+        # Grab all mouse events — prevents child CellWidget from keeping
+        # the implicit grab after mousePress, which would block MainWindow
+        # from receiving mouseMoveEvent during the drag.
+        self.grabMouse()
 
     def mouseMoveEvent(self, e):
         if self._drag_idx is None:
@@ -342,13 +343,14 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.move(pos.x() - half, pos.y() - half)
 
-        # find drop target using precomputed positions
+        # Detect drop target by mapping cursor into grid_host coordinates
         gp       = self._grid_host.mapFrom(self, pos)
         new_over = None
         for i, w in enumerate(self._cell_widgets):
             if i == self._drag_idx:
                 continue
-            if w.rect().contains(w.mapFrom(self._grid_host, gp)):
+            local = QPoint(gp.x() - _CELL_X[i % GRID_COLS], gp.y() - _CELL_Y[i // GRID_COLS])
+            if 0 <= local.x() < CELL_SIZE and 0 <= local.y() < CELL_SIZE:
                 new_over = i
                 break
 
@@ -362,6 +364,8 @@ class MainWindow(QWidget):
     def mouseReleaseEvent(self, e):
         if self._drag_idx is None:
             return
+        self.releaseMouse()
+
         if self._drag_over is not None:
             cells = self._active()["cells"]
             cells[self._drag_idx], cells[self._drag_over] = (
@@ -376,9 +380,6 @@ class MainWindow(QWidget):
 
         self._drag_idx  = None
         self._drag_over = None
-        self.setMouseTracking(False)
-        self._canvas.setMouseTracking(False)
-        self._grid_host.setMouseTracking(False)
         self._refresh()
 
     # ── tooltip ────────────────────────────────────────────────────────────────
