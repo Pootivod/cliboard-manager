@@ -32,10 +32,19 @@ GRID_PAD_H  = 12                         # left / right padding
 GRID_PAD_T  = 14
 GRID_PAD_B  = 10
 GRID_GAP    = 9
-GRID_COLS   = 4
-GRID_SLOTS  = 12
+GRID_ROWS   = 3
+GRID_COLS   = 4                          # default; each table stores its own cols
+GRID_SLOTS  = 12                         # default (GRID_COLS * GRID_ROWS)
 # exact square cell size that fills the grid evenly
 CELL_SIZE   = (GRID_W - 2*GRID_PAD_H - (GRID_COLS-1)*GRID_GAP) // GRID_COLS  # 88 px
+
+
+def grid_metrics(cols: int) -> tuple:
+    """Return (cell_size, cell_x_list, cell_y_list) for the given column count."""
+    cell_size = (GRID_W - 2*GRID_PAD_H - (cols - 1)*GRID_GAP) // cols
+    cell_x = [GRID_PAD_H + c * (cell_size + GRID_GAP) for c in range(cols)]
+    cell_y = [GRID_PAD_T + r * (cell_size + GRID_GAP) for r in range(GRID_ROWS)]
+    return cell_size, cell_x, cell_y
 
 # ── Design tokens (Indigo Dusk) ────────────────────────────────────────────────
 BG      = "#1e1e2e"
@@ -51,7 +60,7 @@ PICKER_EMOJI = ["📧","🏢","📞","📍","🔗","🔑","💳","📝","⚡","�
 # ── First-launch default — one table, one example cell ────────────────────────
 DEFAULT_TABLES = [
     {
-        "id": "main", "emoji": "📋", "name": "Главная",
+        "id": "main", "emoji": "📋", "name": "Главная", "cols": 4,
         "cells": [
             {
                 "emoji": "📖",

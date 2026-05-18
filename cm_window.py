@@ -9,18 +9,13 @@ from PyQt6.QtGui     import QColor, QPainter, QPainterPath, QFont, QCursor
 
 from cm_constants import (
     WIN_W, WIN_H, TOOLBAR_H, STATUSBAR_H, SIDEBAR_W,
-    GRID_W, GRID_PAD_H, GRID_PAD_T, GRID_PAD_B, GRID_GAP, GRID_COLS, GRID_SLOTS,
-    CELL_SIZE, ACCENT, BG, SUCCESS,
-    load_state, save_state,
+    GRID_W, GRID_ROWS, ACCENT, BG, SUCCESS,
+    grid_metrics, load_state, save_state,
 )
 from cm_widgets import (
     CellWidget, LiftedCell, TooltipWidget,
     SidebarItem, AddTableButton, EditModal, EditTableModal,
 )
-
-# precompute cell top-left positions (col, row → x, y)
-_CELL_X = [GRID_PAD_H + c * (CELL_SIZE + GRID_GAP) for c in range(GRID_COLS)]
-_CELL_Y = [GRID_PAD_T + r * (CELL_SIZE + GRID_GAP) for r in range(GRID_SLOTS // GRID_COLS)]
 
 
 class MainWindow(QWidget):
@@ -39,6 +34,11 @@ class MainWindow(QWidget):
         self._modal            = None
         self._toolbar_drag_pos = None
         self._cell_widgets: list[CellWidget] = []
+        # updated by _refresh_grid to reflect active table's column count
+        self._cols      = 4
+        self._cell_size = 88
+        self._cell_x: list[int] = []
+        self._cell_y: list[int] = []
 
         self._tables, self._active_id = load_state()
 
@@ -193,16 +193,21 @@ class MainWindow(QWidget):
             )
 
     def _refresh_grid(self):
+        table = self._active()
+        self._cols = table.get("cols", 4)
+        self._cell_size, self._cell_x, self._cell_y = grid_metrics(self._cols)
+
         # Destroy old cell widgets immediately (setParent removes from display)
         for w in self._cell_widgets:
             w.setParent(None)
         self._cell_widgets = []
 
         # Manually position each cell — guarantees pixel-perfect equal gaps
-        for i, cell in enumerate(self._active()["cells"]):
-            row, col = divmod(i, GRID_COLS)
-            w = CellWidget(i, cell, self._edit_mode, self._grid_host)
-            w.move(_CELL_X[col], _CELL_Y[row])
+        for i, cell in enumerate(table["cells"]):
+            row, col = divmod(i, self._cols)
+            w = CellWidget(i, cell, self._edit_mode, self._grid_host,
+                           cell_size=self._cell_size)
+            w.move(self._cell_x[col], self._cell_y[row])
             w.show()
             w.clicked.connect(self._cell_clicked)
             w.drag_start.connect(self._drag_start)
@@ -268,7 +273,7 @@ class MainWindow(QWidget):
     def _add_table(self):
         tid = str(uuid.uuid4())[:8]
         self._tables.append({
-            "id": tid, "emoji": "📂", "name": "New", "cells": [None]*12
+            "id": tid, "emoji": "📂", "name": "New", "cols": 4, "cells": [None]*12
         })
         self._active_id = tid
         self._refresh()
@@ -350,6 +355,13 @@ class MainWindow(QWidget):
             if t["id"] == tid:
                 t["emoji"] = data["emoji"]
                 t["name"]  = data["name"]
+                new_cols   = data.get("cols", t.get("cols", 4))
+                if new_cols != t.get("cols", 4):
+                    new_slots = new_cols * GRID_ROWS
+                    old_cells = t["cells"]
+                    # resize: keep existing cells, pad or trim
+                    t["cells"] = (old_cells + [None] * new_slots)[:new_slots]
+                t["cols"] = new_cols
                 break
         self._close_modal()
         self._refresh()
@@ -377,7 +389,7 @@ class MainWindow(QWidget):
         if self._lifted:
             self._lifted.hide()
             self._lifted.deleteLater()
-        self._lifted = LiftedCell(cell, self._canvas)
+        self._lifted = LiftedCell(cell, self._canvas, cell_size=self._cell_size)
         cp   = self._canvas.mapFromGlobal(QCursor.pos())
         half = self._lifted.width() // 2
         self._lifted.move(cp.x() - half, cp.y() - half)
@@ -403,8 +415,9 @@ class MainWindow(QWidget):
         for i, w in enumerate(self._cell_widgets):
             if i == self._drag_idx:
                 continue
-            local = QPoint(gp.x() - _CELL_X[i % GRID_COLS], gp.y() - _CELL_Y[i // GRID_COLS])
-            if 0 <= local.x() < CELL_SIZE and 0 <= local.y() < CELL_SIZE:
+            local = QPoint(gp.x() - self._cell_x[i % self._cols],
+                           gp.y() - self._cell_y[i // self._cols])
+            if 0 <= local.x() < self._cell_size and 0 <= local.y() < self._cell_size:
                 new_over = i
                 break
 

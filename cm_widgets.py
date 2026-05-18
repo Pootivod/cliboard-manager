@@ -246,7 +246,8 @@ class CellWidget(QWidget):
     clicked    = pyqtSignal(int)
     drag_start = pyqtSignal(int)
 
-    def __init__(self, index: int, cell: dict | None, edit_mode: bool, parent=None):
+    def __init__(self, index: int, cell: dict | None, edit_mode: bool,
+                 parent=None, cell_size: int = CELL_SIZE):
         super().__init__(parent)
         self.index      = index
         self.cell       = cell
@@ -259,7 +260,7 @@ class CellWidget(QWidget):
         self._tooltip_timer  = QTimer(self)
         self._tooltip_timer.setSingleShot(True)
         self._tooltip_timer.timeout.connect(self._request_tooltip)
-        self.setFixedSize(CELL_SIZE, CELL_SIZE)
+        self.setFixedSize(cell_size, cell_size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def set_placeholder(self, v: bool):
@@ -399,10 +400,10 @@ class CellWidget(QWidget):
 #  LiftedCell
 # ══════════════════════════════════════════════════════════════════════════════
 class LiftedCell(QWidget):
-    def __init__(self, cell: dict, parent=None):
+    def __init__(self, cell: dict, parent=None, cell_size: int = CELL_SIZE):
         super().__init__(parent)
         self.cell = cell
-        sz = CELL_SIZE + 8
+        sz = cell_size + 8
         self.setFixedSize(sz, sz)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
@@ -756,7 +757,7 @@ class EditModal(QWidget):
 #  EditTableModal — edit table name / emoji
 # ══════════════════════════════════════════════════════════════════════════════
 class EditTableModal(QWidget):
-    saved   = pyqtSignal(dict)   # {"emoji": ..., "name": ...}
+    saved   = pyqtSignal(dict)   # {"emoji": ..., "name": ..., "cols": ...}
     deleted = pyqtSignal()
     closed  = pyqtSignal()
 
@@ -797,6 +798,23 @@ class EditTableModal(QWidget):
         self._name.setStyleSheet(_input_style())
         v.addWidget(self._name)
 
+        # ── Column count selector ──────────────────────────────────────────────
+        v.addWidget(_field_label("СТОЛБЦЫ"))
+        self._selected_cols = table.get("cols", 4)
+        self._cols_btns: list[tuple[int, QPushButton]] = []
+        cols_row = QHBoxLayout()
+        cols_row.setSpacing(6)
+        for n in (2, 3, 4, 5):
+            btn = QPushButton(str(n))
+            btn.setFixedSize(38, 28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(self._cols_btn_style(n == self._selected_cols))
+            btn.clicked.connect(lambda _, nb=n: self._select_cols(nb))
+            cols_row.addWidget(btn)
+            self._cols_btns.append((n, btn))
+        cols_row.addStretch()
+        v.addLayout(cols_row)
+
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
         if can_delete:
             self._del_btn = QPushButton("Удалить")
@@ -826,10 +844,30 @@ class EditTableModal(QWidget):
         box.move((pw - box.width()) // 2, max(10, (ph - box.height()) // 2))
         self._name.setFocus()
 
+    @staticmethod
+    def _cols_btn_style(active: bool) -> str:
+        if active:
+            return (f"QPushButton{{border-radius:7px;border:1px solid rgba(124,106,247,160);"
+                    f"background:rgba(124,106,247,60);color:white;"
+                    f"font-size:12px;font-weight:600;}}")
+        return ("QPushButton{border-radius:7px;border:1px solid rgba(255,255,255,0.08);"
+                "background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.6);"
+                "font-size:12px;font-weight:600;}"
+                "QPushButton:hover{background:rgba(255,255,255,0.12);color:white;}")
+
+    def _select_cols(self, n: int):
+        self._selected_cols = n
+        for nb, btn in self._cols_btns:
+            btn.setStyleSheet(self._cols_btn_style(nb == n))
+
     def _on_save(self):
         name = self._name.text().strip()
         if name:
-            self.saved.emit({"emoji": self._picker.get_selected(), "name": name})
+            self.saved.emit({
+                "emoji": self._picker.get_selected(),
+                "name": name,
+                "cols": self._selected_cols,
+            })
 
     def _on_delete(self):
         if self._confirm_delete:
